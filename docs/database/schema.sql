@@ -1,37 +1,39 @@
 -- =============================================================================
--- SkillWise — ฐานข้อมูลสำหรับ MVP (Phase 1)
+-- SkillwisE — ฐานข้อมูล Phase 1
 -- =============================================================================
--- ฐานข้อมูล : PostgreSQL 16 ขึ้นไป (Context ข้อ 60.5, 60.11)
--- สถานะ     : [DIRECTION] ร่างออกแบบให้ทีมตรวจ ยังไม่ใช่ migration ที่ใช้จริง
---              เมื่อสร้าง apps/api ให้แปลงเป็น schema.prisma แล้วให้ Prisma สร้าง migration
--- ขอบเขต    : ฟีเจอร์ Must + Should ในหัวข้อ 8 ของ docs/sila5school-study.md
---              ตารางของ Should ติดป้าย [Should] ไว้ที่ comment ของตาราง
--- เอกสาร    : docs/database/README.md (ER diagram, บทบาทและสิทธิ์, ตารางเทียบระบบเดิม)
+-- ฐานข้อมูล : PostgreSQL 16 ขึ้นไป (Context ข้อ 60.5, 60.11.3)
+-- สถานะ     : [DIRECTION] ร่างให้ทีมตรวจ ยังไม่ใช่ migration ที่ใช้จริง
+--              เมื่อสร้าง apps/api ให้แปลงตารางเป็น schema.prisma แล้วให้ Prisma สร้าง migration
+--              ส่วน trigger ฟังก์ชัน และ view (อยู่ทุกหมวด) ให้ใส่เป็น migration แบบ SQL ตรง
+-- ที่มา     : ภาคผนวก ก. ของ docs/system-plan.md (Context ข้อ 60.13)
+--              ออกแบบใหม่ทั้งหมด ไม่ต่อยอดจากร่างเดิมที่อิงระบบ Sila5School (ข้อ 60.13.2)
+-- เอกสาร    : docs/database/README.md (ตารางเทียบภาคผนวก ก. และกรณีทดสอบ)
 --
 -- หลักที่ใช้ออกแบบ
---   1. แยกตาม domain ในข้อ 46 · ตัวตน ≠ สมาชิกองค์กร (ข้อ 33) · ตำแหน่ง ≠ สิทธิ์ (ข้อ 32)
---   2. ไม่ hard-code โครงสร้างโรงเรียนไทย, 7 กิจวัตร, แพ็กเกจ หรือประเภท Tool (ข้อ 47, 53)
---      ของเหล่านี้เป็น "ข้อมูล" ในตาราง ไม่ใช่คอลัมน์หรือค่าคงที่
---   3. ไม่เก็บ id หลายค่าใน 1 ช่อง (ระบบเดิมเก็บเป็น CSV) ใช้ตารางเชื่อมแทน
---   4. ข้อมูลที่ต้องย้อนดูพัฒนาการเก็บเป็น version / revision ไม่เขียนทับ
---   5. ข้อมูลนักเรียน (ผู้เยาว์) เป็นของบัญชีองค์กร มี pseudonym_key ไว้ส่ง AI แทนชื่อจริง
---   6. ค่าที่ยัง [OPEN] เช่น โควตา เกณฑ์คะแนน จำนวน Canvas สูงสุด เก็บเป็นค่าตั้ง ไม่ใช่ constraint
+--   1. ราคา แพ็กเกจ และกติกาสิทธิ์เป็น "ข้อมูล" ในตาราง ไม่ใช่ค่าคงที่ในโค้ด
+--   2. เงินและสิทธิ์ห้ามแก้ทับ ห้ามลบ
+--      - สมุดเครดิต ประวัติสถานะ และ log เป็นแบบเพิ่มอย่างเดียว
+--      - ตารางที่ต้องกรอกภายหลัง (เช่น วันเริ่มของ Pro ที่รอเริ่ม, วันยกเลิก) กรอกได้ครั้งเดียว
+--   3. เงินเป็นสตางค์ (bigint) ทั้งหมด
+--   4. สถานะที่คำนวณจากวันที่ได้ ไม่เก็บซ้ำ ให้อ่านจาก view ในหมวด 10 ข้อมูลจึงไม่ขัดกันเอง
+--   5. ส่วนที่ต้องล็อกแถวกันการกดพร้อมกัน (หักเครดิต กันสต็อก ออกเลขเอกสาร) เป็นฟังก์ชันในหมวด 9
+--      เพราะ Prisma ยังไม่มีคำสั่งล็อกแถวในตัว (Context ข้อ 60.13.6)
 --
 -- ข้อตกลงในไฟล์นี้
 --   - primary key เป็น uuid (gen_random_uuid) ยกเว้นตาราง log ที่โตเร็วใช้ bigint identity
---   - เวลาใช้ timestamptz ทั้งหมด · วันที่ที่ไม่มีเวลาใช้ date
---   - สถานะของระบบใช้ text + CHECK (แก้ได้ด้วย migration ง่ายกว่า enum)
---   - ชื่อตารางเป็นพหูพจน์ snake_case
+--   - เวลาใช้ timestamptz ทั้งหมด เก็บเป็นเวลาสากล แสดงผลเป็นเวลาไทย
+--   - สถานะใช้ text + CHECK (แก้ด้วย migration ได้ง่ายกว่า enum)
+--   - ชื่อตารางเป็นพหูพจน์ snake_case · ตารางที่แก้ไม่ได้ไม่มี updated_at
 -- =============================================================================
 
 BEGIN;
 
-CREATE EXTENSION IF NOT EXISTS citext;      -- อีเมลที่ไม่สนตัวพิมพ์ใหญ่/เล็ก
-CREATE EXTENSION IF NOT EXISTS btree_gist;  -- ใช้กับ EXCLUDE กันช่วงวันที่ซ้อนกัน
+CREATE EXTENSION IF NOT EXISTS citext;  -- อีเมลที่ไม่สนตัวพิมพ์ใหญ่/เล็ก
 
--- -----------------------------------------------------------------------------
--- ฟังก์ชันกลาง
--- -----------------------------------------------------------------------------
+
+-- =============================================================================
+-- 0. ฟังก์ชันกลาง
+-- =============================================================================
 
 -- อัปเดต updated_at อัตโนมัติ
 CREATE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -40,1353 +42,1348 @@ BEGIN
   RETURN NEW;
 END $$;
 
--- ตารางที่ห้ามแก้ไข (append-only) เช่น revision และ audit log
+-- ตารางแบบเพิ่มอย่างเดียว ห้ามแก้ ห้ามลบ
 CREATE FUNCTION forbid_change() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  RAISE EXCEPTION 'ตาราง % เป็นแบบเพิ่มอย่างเดียว ห้าม % (Context ข้อ 60.7, 60.10.5)', TG_TABLE_NAME, TG_OP
+  RAISE EXCEPTION 'ตาราง % เป็นแบบเพิ่มอย่างเดียว ห้าม %', TG_TABLE_NAME, TG_OP
     USING ERRCODE = 'insufficient_privilege';
 END $$;
 
+-- ห้ามลบ และแก้ได้เฉพาะช่องที่ส่งชื่อมาใน trigger โดยกรอกได้ครั้งเดียว (จากว่างเป็นมีค่า)
+-- ใช้กับตารางเงินและสิทธิ์ที่มีช่องกรอกภายหลัง เช่น วันยกเลิก
+CREATE FUNCTION allow_fill_once() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  old_row jsonb := to_jsonb(OLD);
+  new_row jsonb := to_jsonb(NEW);
+  col     text;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'ตาราง % ห้ามลบ ให้บันทึกการยกเลิกแทน', TG_TABLE_NAME
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  FOR col IN SELECT jsonb_object_keys(new_row) LOOP
+    CONTINUE WHEN col = 'updated_at' OR old_row -> col IS NOT DISTINCT FROM new_row -> col;
+    IF NOT (col = ANY (TG_ARGV)) OR old_row ->> col IS NOT NULL THEN
+      RAISE EXCEPTION 'ตาราง % ช่อง % แก้ไม่ได้ (กรอกได้ครั้งเดียวเฉพาะช่องที่อนุญาต)', TG_TABLE_NAME, col
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END $$;
+
 
 -- =============================================================================
--- 1. Identity — ตัวตนของผู้ใช้ (ไม่ผูกกับองค์กร · ข้อ 33, 34)
+-- 1. บัญชีและองค์กร (system-plan ส่วนที่ 7)
 -- =============================================================================
 
 CREATE TABLE users (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  email          citext,                       -- login ด้วย LINE อาจไม่มีอีเมล
-  display_name   text NOT NULL,
-  first_name     text,
-  last_name      text,
-  phone          text,
-  avatar_url     text,                         -- รูปจาก Google / LINE
-  locale         text NOT NULL DEFAULT 'th',
-  status         text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'deleted')),
-  last_login_at  timestamptz,
-  created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz NOT NULL DEFAULT now(),
-  deleted_at     timestamptz,
-  CHECK ((status = 'deleted') = (deleted_at IS NOT NULL))
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  display_name     text NOT NULL,
+  email            citext,                      -- เข้าด้วย LINE อาจไม่มีอีเมล
+  phone_encrypted  bytea,                       -- API เข้ารหัสก่อนบันทึก · หลังบ้านแสดงแบบปิดบางส่วน
+  status           text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'deleted')),
+  last_login_at    timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX users_email_key ON users (email) WHERE email IS NOT NULL AND deleted_at IS NULL;
-COMMENT ON TABLE users IS 'บัญชีผู้ใช้ 1 คน = 1 แถว ไม่ว่าจะอยู่กี่องค์กร หรือไม่อยู่องค์กรไหนเลย (ครูอิสระ)';
+CREATE UNIQUE INDEX users_email_key ON users (email) WHERE email IS NOT NULL AND status <> 'deleted';
+COMMENT ON TABLE users IS '1 คน = 1 บัญชี ผูกได้ทั้ง Google และ LINE · ครูอิสระไม่ต้องอยู่องค์กรไหน';
 
-CREATE TABLE user_identities (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id               uuid NOT NULL REFERENCES users (id),
-  provider              text NOT NULL CHECK (provider IN ('google', 'line')),
-  provider_subject      text NOT NULL,         -- sub ของ Google / userId ของ LINE
-  email_at_provider     citext,
-  can_receive_messages  boolean NOT NULL DEFAULT false,  -- LINE: เพิ่มเพื่อน OA แล้ว ส่ง push ได้
-  linked_at             timestamptz NOT NULL DEFAULT now(),
-  unlinked_at           timestamptz
+CREATE TABLE auth_accounts (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            uuid NOT NULL REFERENCES users (id),
+  provider           text NOT NULL CHECK (provider IN ('google', 'line')),
+  provider_user_id   text NOT NULL,              -- sub ของ Google / userId ของ LINE
+  email_at_provider  citext,
+  line_is_friend     boolean NOT NULL DEFAULT false,  -- เพิ่มเพื่อน LINE OA แล้ว ส่งข้อความหาได้
+  linked_at          timestamptz NOT NULL DEFAULT now(),
+  unlinked_at        timestamptz
 );
-CREATE UNIQUE INDEX user_identities_subject_key ON user_identities (provider, provider_subject) WHERE unlinked_at IS NULL;
-CREATE UNIQUE INDEX user_identities_one_per_provider ON user_identities (user_id, provider) WHERE unlinked_at IS NULL;
-COMMENT ON TABLE user_identities IS 'บัญชี Google / LINE ที่ใช้ login และใช้รับข้อความ LINE (ข้อ 60.5, 60.10.6)';
+CREATE UNIQUE INDEX auth_accounts_provider_key ON auth_accounts (provider, provider_user_id) WHERE unlinked_at IS NULL;
+CREATE UNIQUE INDEX auth_accounts_one_per_provider ON auth_accounts (user_id, provider) WHERE unlinked_at IS NULL;
+COMMENT ON TABLE auth_accounts IS 'ช่องทางเข้าสู่ระบบของแต่ละบัญชี · อีเมลซ้ำกับบัญชีอื่นให้ถามยืนยันก่อนรวม ไม่รวมเอง';
 
-CREATE TABLE auth_sessions (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id               uuid NOT NULL REFERENCES users (id),
-  kind                  text NOT NULL CHECK (kind IN ('session', 'remember')),
-  token_hash            bytea NOT NULL UNIQUE,  -- เก็บแค่ SHA-256 ของ token
-  -- token ที่หมุนต่อกันอยู่ family เดียว ถ้า token เก่าถูกใช้ซ้ำให้ revoke ทั้ง family
-  family_id             uuid NOT NULL DEFAULT gen_random_uuid(),
-  impersonator_user_id  uuid REFERENCES users (id),  -- มีค่าเมื่อแอดมิน login-as
-  ip                    inet,
-  user_agent            text,
-  created_at            timestamptz NOT NULL DEFAULT now(),
-  last_seen_at          timestamptz,
-  expires_at            timestamptz NOT NULL,
-  -- อายุสูงสุดของ family ระบบเดิมหมุนแล้วได้อายุใหม่ 7 วันเรื่อย ๆ จึงไม่มีวันหมด
-  absolute_expires_at   timestamptz NOT NULL,
-  rotated_to_id         uuid REFERENCES auth_sessions (id),  -- remember-me หมุน token ทุกครั้งที่ใช้
-  revoked_at            timestamptz,
-  CHECK (expires_at > created_at),
-  CHECK (expires_at <= absolute_expires_at)
+CREATE TABLE user_roles (
+  user_id     uuid NOT NULL REFERENCES users (id),
+  role        text NOT NULL CHECK (role IN ('teacher', 'coordinator', 'executive', 'external_viewer')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, role)
 );
-CREATE INDEX auth_sessions_user_idx ON auth_sessions (user_id) WHERE revoked_at IS NULL;
-CREATE INDEX auth_sessions_family_idx ON auth_sessions (family_id);
-COMMENT ON TABLE auth_sessions IS 'session และ remember-me token แบบหมุน (ระบบเดิม library/rgt/siteAuth.php)';
+COMMENT ON TABLE user_roles IS 'บทบาทที่ผู้ใช้เลือกตอนสมัคร มีได้หลายค่า สลับมุมมองในบัญชีเดียว · ไม่ใช่สิทธิ์ทีมงาน';
+
+CREATE TABLE files (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  purpose       text NOT NULL CHECK (purpose IN (
+                  'payment_slip', 'financial_document', 'withholding_certificate',
+                  'teacher_manual', 'policy_document', 'product_image')),
+  storage_key   text NOT NULL UNIQUE,            -- ที่อยู่ใน R2 · เปิดด้วยลิงก์ที่หมดอายุเท่านั้น
+  content_type  text NOT NULL,
+  size_bytes    bigint NOT NULL CHECK (size_bytes > 0),
+  uploaded_by   uuid REFERENCES users (id),      -- NULL = ระบบสร้างเอง เช่น PDF ใบเสร็จ
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CHECK (purpose <> 'payment_slip' OR content_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf'))
+);
+COMMENT ON TABLE files IS '[ตารางเสริม] ไฟล์ทั้งหมดเป็นไฟล์ส่วนตัว · สลิปรับเฉพาะรูปภาพหรือ PDF (system-plan ส่วนที่ 10)';
 
 CREATE TABLE policy_documents (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  kind          text NOT NULL,                 -- เช่น privacy, terms, marketing (เพิ่มได้)
+  kind          text NOT NULL CHECK (kind IN ('privacy', 'terms', 'refund', 'child_data')),
   version       text NOT NULL,
-  title         text NOT NULL,
-  body          text NOT NULL,
-  is_required   boolean NOT NULL DEFAULT true, -- false = ผู้ใช้เลือกไม่ยินยอมได้ เช่น การตลาด
-  effective_at  timestamptz NOT NULL,
-  created_at    timestamptz NOT NULL DEFAULT now(),
+  file_id       uuid REFERENCES files (id),
+  published_at  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (kind, version)
 );
-COMMENT ON TABLE policy_documents IS 'นโยบายแต่ละฉบับมี version · ระบบเดิมเก็บความยินยอม 2 ค่าที่ไม่เคยแยกกันจริง';
+CREATE TRIGGER policy_documents_append_only BEFORE UPDATE OR DELETE ON policy_documents
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE policy_documents IS '[ตารางเสริม] นโยบายแต่ละเวอร์ชัน เพื่อให้ consents อ้างได้ว่ายอมรับฉบับไหน';
 
-CREATE TABLE user_consents (
+CREATE TABLE consents (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id             uuid NOT NULL REFERENCES users (id),
-  policy_document_id  uuid NOT NULL REFERENCES policy_documents (id),
-  decision            text NOT NULL CHECK (decision IN ('granted', 'declined', 'withdrawn')),
-  decided_at          timestamptz NOT NULL DEFAULT now(),
-  ip                  inet,
-  user_agent          text
+  kind                text NOT NULL CHECK (kind IN ('privacy', 'terms', 'marketing', 'child_data')),
+  policy_document_id  uuid REFERENCES policy_documents (id),
+  granted_at          timestamptz NOT NULL DEFAULT now(),
+  withdrawn_at        timestamptz,
+  CHECK (kind = 'marketing' OR policy_document_id IS NOT NULL)
 );
-CREATE INDEX user_consents_lookup_idx ON user_consents (user_id, policy_document_id, decided_at DESC);
-COMMENT ON TABLE user_consents IS 'ประวัติการให้/ถอนความยินยอม เพิ่มแถวใหม่ทุกครั้ง แถวล่าสุดคือสถานะปัจจุบัน';
+CREATE INDEX consents_user_idx ON consents (user_id, kind, granted_at DESC);
+CREATE TRIGGER consents_fill_once BEFORE UPDATE OR DELETE ON consents
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('withdrawn_at');
+COMMENT ON TABLE consents IS 'ใครยอมรับนโยบายเวอร์ชันไหนเมื่อไร · ยินยอมรับข่าวสาร (marketing) แยกจากการแจ้งเรื่องคำสั่งซื้อ';
 
+CREATE TABLE addresses (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES users (id),
+  recipient_name  text NOT NULL,
+  phone           text NOT NULL,                 -- ใช้พิมพ์ใบปะหน้า · หลังบ้านแสดงแบบปิดบางส่วน
+  address_line    text NOT NULL,
+  subdistrict     text NOT NULL,
+  district        text NOT NULL,
+  province        text NOT NULL,
+  postal_code     text NOT NULL CHECK (postal_code ~ '^[0-9]{5}$'),
+  is_default      boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX addresses_one_default ON addresses (user_id) WHERE is_default;
+COMMENT ON TABLE addresses IS 'ที่อยู่จัดส่งของผู้ใช้ · ถามตอนชำระเงิน (F8, F9) · คำสั่งซื้อเก็บสำเนาของตัวเอง';
 
--- =============================================================================
--- 2. Organization — องค์กร โครงสร้างภายใน และสมาชิก (ข้อ 33, 35)
--- =============================================================================
+CREATE TABLE schools_directory (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name            text NOT NULL,
+  school_type     text,                          -- ตามรายชื่อสาธารณะ ไม่ hard-code โครงสร้างโรงเรียนไทย
+  province        text,
+  district        text,
+  affiliation     text,                          -- สังกัด
+  source          text NOT NULL CHECK (source IN ('public_list', 'user_added')),
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('verified', 'pending', 'merged')),
+  merged_into_id  uuid REFERENCES schools_directory (id),
+  added_by        uuid REFERENCES users (id),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  CHECK ((status = 'merged') = (merged_into_id IS NOT NULL)),
+  CHECK (source <> 'user_added' OR added_by IS NOT NULL)
+);
+CREATE INDEX schools_directory_search_idx ON schools_directory (province, name) WHERE status <> 'merged';
+COMMENT ON TABLE schools_directory IS 'ฐานข้อมูลสถานศึกษา ตั้งต้นจากรายชื่อสาธารณะ · ชื่อที่ผู้ใช้พิมพ์เพิ่มรอทีมงานตรวจ (A4)';
 
 CREATE TABLE organizations (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          text NOT NULL,
-  org_kind      text NOT NULL DEFAULT 'school',  -- เป็นข้อมูล ไม่ใช่โครงสร้างตายตัว
-  attributes    jsonb NOT NULL DEFAULT '{}',     -- ข้อมูลเสริมที่ไม่บังคับ เช่น สังกัด เขต ขนาด
-  address_line  text,
-  subdistrict   text,
-  district      text,
-  province      text,
-  postal_code   text,
-  country_code  char(2) NOT NULL DEFAULT 'TH',
-  status        text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
-  created_by    uuid REFERENCES users (id),
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  updated_at    timestamptz NOT NULL DEFAULT now()
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_type             text NOT NULL CHECK (org_type IN ('school', 'network')),
+  school_directory_id  uuid REFERENCES schools_directory (id),
+  name                 text NOT NULL,
+  billing_name         text,                     -- ชื่อที่ใช้ออกเอกสารการเงิน
+  tax_id               text CHECK (tax_id ~ '^[0-9]{13}$'),
+  tax_branch           text,                     -- สำนักงานใหญ่ หรือเลขสาขา
+  billing_address      text,
+  created_by           uuid REFERENCES users (id),
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
 );
-COMMENT ON TABLE organizations IS 'โรงเรียนหรือองค์กรอื่น ไม่บังคับว่าครูต้องมีองค์กร (ข้อ 34, 53)';
+COMMENT ON TABLE organizations IS 'โรงเรียนหรือเครือข่าย · Phase 1 ใช้ผูกครูกับโรงเรียนและออกเอกสารในนามโรงเรียน · ทีมครูเปิดใช้ Phase 3';
 
-CREATE TABLE org_units (
+CREATE TABLE org_memberships (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id  uuid NOT NULL REFERENCES organizations (id),
-  parent_id        uuid,
-  kind             text NOT NULL,          -- องค์กรตั้งเอง เช่น level, classroom, group
-  name             text NOT NULL,          -- เช่น "ป.4", "ป.4/1", "ชมรมดนตรี"
-  sort_order       integer NOT NULL DEFAULT 0,
-  archived_at      timestamptz,
+  user_id          uuid REFERENCES users (id),   -- NULL ระหว่างเชิญด้วยอีเมลที่ยังไม่มีบัญชี
+  invited_email    citext,
+  role             text NOT NULL CHECK (role IN ('owner', 'coordinator', 'member')),
+  status           text NOT NULL CHECK (status IN ('invited', 'active', 'left')),
+  has_pro_seat     boolean NOT NULL DEFAULT false,  -- ได้ที่นั่ง Pro จากแพ็กเกจโรงเรียน (Phase 3)
+  invited_by       uuid REFERENCES users (id),
+  joined_at        timestamptz,
+  left_at          timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (id, organization_id),
-  -- parent ต้องอยู่องค์กรเดียวกัน
-  FOREIGN KEY (parent_id, organization_id) REFERENCES org_units (id, organization_id),
-  CHECK (parent_id IS DISTINCT FROM id)
+  CHECK (user_id IS NOT NULL OR invited_email IS NOT NULL),
+  CHECK (status <> 'active' OR (user_id IS NOT NULL AND joined_at IS NOT NULL))
 );
-CREATE INDEX org_units_parent_idx ON org_units (organization_id, parent_id);
-COMMENT ON TABLE org_units IS 'โครงสร้างภายในองค์กรแบบต้นไม้ (ระดับ → ห้อง → กลุ่ม) ตั้งค่าได้ ไม่ fix ป.4 ขึ้นไป (ข้อ 35)';
+CREATE UNIQUE INDEX org_memberships_active_key ON org_memberships (organization_id, user_id) WHERE status = 'active';
+COMMENT ON TABLE org_memberships IS 'ครูกับโรงเรียน · Phase 1 มีแค่ผูกครูกับโรงเรียน ส่วนคำเชิญและที่นั่งเปิดใช้ Phase 3';
 
-CREATE TABLE memberships (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          uuid NOT NULL REFERENCES users (id),
-  organization_id  uuid NOT NULL REFERENCES organizations (id),
-  position_title   text,                   -- ตำแหน่งงานเพื่อแสดงผล ไม่ใช่สิทธิ์ (ข้อ 32)
-  status           text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'left', 'removed')),
-  joined_at        timestamptz NOT NULL DEFAULT now(),
-  ended_at         timestamptz,
-  created_by       uuid REFERENCES users (id),
-  CHECK ((status = 'active') = (ended_at IS NULL))
+-- ทีมงาน SkillwisE (Context ข้อ 60.7: บทบาทตามหน้าที่ ประกอบด้วยสิทธิ์ที่ตั้งชื่อชัดเจน)
+CREATE TABLE staff_roles (
+  code         text PRIMARY KEY,                 -- เช่น packing, accounting, training, content, admin
+  name         text NOT NULL,
+  description  text
 );
-CREATE UNIQUE INDEX memberships_active_key ON memberships (user_id, organization_id) WHERE status = 'active';
-CREATE UNIQUE INDEX memberships_id_org_key ON memberships (id, organization_id);
-COMMENT ON TABLE memberships IS 'คน × องค์กร · คนหนึ่งอยู่หลายองค์กรได้ และออกแล้วประวัติไม่หาย';
+COMMENT ON TABLE staff_roles IS '[ตารางเสริม] บทบาททีมงาน ปรับในหลังบ้านได้';
 
-CREATE TABLE membership_org_units (
-  membership_id    uuid NOT NULL,
-  org_unit_id      uuid NOT NULL,
-  organization_id  uuid NOT NULL,
-  PRIMARY KEY (membership_id, org_unit_id),
-  -- ห้องต้องอยู่องค์กรเดียวกับ membership
-  FOREIGN KEY (membership_id, organization_id) REFERENCES memberships (id, organization_id) ON DELETE CASCADE,
-  FOREIGN KEY (org_unit_id, organization_id) REFERENCES org_units (id, organization_id)
+CREATE TABLE staff_role_permissions (
+  role_code   text NOT NULL REFERENCES staff_roles (code),
+  permission  text NOT NULL,                     -- ชื่อสิทธิ์ที่ endpoint ประกาศไว้ เช่น orders.verify_payment
+  PRIMARY KEY (role_code, permission)
 );
-COMMENT ON TABLE membership_org_units IS 'ห้อง/กลุ่มที่ครูดูแล ใช้กรองหน้าจอ ไม่ใช่การให้สิทธิ์ (ระบบเดิมเก็บเป็น CSV ใน stk_class)';
+COMMENT ON TABLE staff_role_permissions IS '[ตารางเสริม] สิทธิ์ของแต่ละบทบาท · ชื่อสิทธิ์ต้องตรงกับที่ guard ของ API ตรวจ';
 
-
--- =============================================================================
--- 3. Role & Permission — บทบาทประกอบจากสิทธิ์ที่ตั้งชื่อชัด (ข้อ 32, 60.7)
--- =============================================================================
-
-CREATE TABLE permissions (
-  code          text PRIMARY KEY CHECK (code ~ '^[a-z_]+(\.[a-z_]+)+$'),
-  scope         text NOT NULL CHECK (scope IN ('platform', 'organization', 'self')),
-  description   text NOT NULL,
-  is_sensitive  boolean NOT NULL DEFAULT false  -- true = ใช้เมื่อไรต้องบันทึก audit_logs
-);
-COMMENT ON TABLE permissions IS 'รายการสิทธิ์ทั้งหมด · endpoint ทุกตัวต้องประกาศว่าใช้สิทธิ์ไหน ค่าเริ่มต้นคือปฏิเสธ';
-
-CREATE TABLE roles (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code             text NOT NULL,
-  name             text NOT NULL,
-  description      text,
-  scope            text NOT NULL CHECK (scope IN ('platform', 'organization')),
-  organization_id  uuid REFERENCES organizations (id),  -- null = บทบาทมาตรฐาน · มีค่า = องค์กรสร้างเอง (อนาคต)
-  is_system        boolean NOT NULL DEFAULT false,      -- บทบาทที่ระบบต้องมี ห้ามลบ
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (id, scope),
-  CHECK (scope = 'organization' OR organization_id IS NULL)
-);
-CREATE UNIQUE INDEX roles_standard_code_key ON roles (code) WHERE organization_id IS NULL;
-CREATE UNIQUE INDEX roles_org_code_key ON roles (organization_id, code) WHERE organization_id IS NOT NULL;
-COMMENT ON TABLE roles IS 'บทบาท · แอดมินปรับสิทธิ์ในบทบาทได้จากหน้าแอดมิน (ข้อ 60.7) · ไม่ใช้ตัวเลขระดับ 1–9 แบบระบบเดิม';
-
-CREATE TABLE role_permissions (
-  role_id          uuid NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
-  permission_code  text NOT NULL REFERENCES permissions (code),
-  PRIMARY KEY (role_id, permission_code)
-);
-
-CREATE TABLE role_assignments (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          uuid NOT NULL REFERENCES users (id),
-  role_id          uuid NOT NULL,
-  role_scope       text NOT NULL,
-  organization_id  uuid REFERENCES organizations (id),
-  granted_by       uuid REFERENCES users (id),
-  granted_at       timestamptz NOT NULL DEFAULT now(),
-  expires_at       timestamptz,
-  revoked_at       timestamptz,
-  revoked_by       uuid REFERENCES users (id),
-  -- บทบาทระดับ platform ต้องไม่มีองค์กร · บทบาทระดับองค์กรต้องมีองค์กร
-  FOREIGN KEY (role_id, role_scope) REFERENCES roles (id, scope),
-  CHECK ((role_scope = 'platform') = (organization_id IS NULL))
-);
-CREATE UNIQUE INDEX role_assignments_active_key
-  ON role_assignments (user_id, role_id, organization_id) NULLS NOT DISTINCT WHERE revoked_at IS NULL;
-COMMENT ON TABLE role_assignments IS 'มอบบทบาทให้คน ระดับทั้งระบบ (แอดมิน, โค้ช) หรือรายองค์กร';
-
-CREATE TABLE invitations (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id  uuid NOT NULL REFERENCES organizations (id),
-  email            citext,                 -- null = เชิญด้วยลิงก์
-  role_id          uuid NOT NULL,
-  role_scope       text NOT NULL DEFAULT 'organization' CHECK (role_scope = 'organization'),
-  token_hash       bytea NOT NULL UNIQUE,
-  invited_by       uuid NOT NULL REFERENCES users (id),
-  expires_at       timestamptz NOT NULL,
-  accepted_at      timestamptz,
-  accepted_by      uuid REFERENCES users (id),
-  revoked_at       timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (role_id, role_scope) REFERENCES roles (id, scope),
-  CHECK ((accepted_at IS NULL) = (accepted_by IS NULL))
-);
-CREATE UNIQUE INDEX invitations_pending_email_key ON invitations (organization_id, email)
-  WHERE email IS NOT NULL AND accepted_at IS NULL AND revoked_at IS NULL;
-COMMENT ON TABLE invitations IS 'เชิญเข้าองค์กรด้วยอีเมลหรือลิงก์ ผูกเข้าองค์กรตอน login ครั้งแรก';
-
-
--- =============================================================================
--- 4. File — ไฟล์เป็น private โดยค่าเริ่มต้น
--- =============================================================================
-
-CREATE TABLE files (
-  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id          uuid REFERENCES users (id),
-  organization_id        uuid REFERENCES organizations (id),
-  storage_bucket         text NOT NULL,
-  storage_key            text NOT NULL,
-  original_name          text,
-  mime_type              text NOT NULL,
-  size_bytes             bigint NOT NULL CHECK (size_bytes >= 0),
-  checksum_sha256        bytea,
-  access_level           text NOT NULL DEFAULT 'private' CHECK (access_level IN ('private', 'organization', 'public')),
-  contains_student_data  boolean NOT NULL DEFAULT false,
-  uploaded_at            timestamptz NOT NULL DEFAULT now(),
-  deleted_at             timestamptz,
-  UNIQUE (storage_bucket, storage_key),
-  -- ไฟล์ที่มีข้อมูลนักเรียนห้ามเป็น public
-  CHECK (NOT (access_level = 'public' AND contains_student_data))
-);
-COMMENT ON TABLE files IS 'ไฟล์ทุกชนิด (R2/S3) ดาวน์โหลดผ่าน API ที่ตรวจสิทธิ์ · ระบบเดิมคุมสิทธิ์แค่ระดับ bucket';
-
-ALTER TABLE organizations
-  ADD COLUMN logo_file_id uuid REFERENCES files (id);  -- แก้ได้ด้วยสิทธิ์ org.profile.manage
-
-
--- =============================================================================
--- 5. Access — สินค้า seat สิทธิ์ใช้งาน และโควตา (ข้อ 36, 42, 60.8)
---    การเข้าถึงฟีเจอร์ดูจาก entitlements ที่เดียว ไม่ผูกกับสถานะการจ่ายเงินโดยตรง
--- =============================================================================
-
-CREATE TABLE features (
-  code         text PRIMARY KEY,           -- เช่น tool.canvas, ai.plan_synthesis
-  description  text NOT NULL,
-  unit         text                        -- หน่วยของโควตา เช่น job, session · null = เปิด/ปิดอย่างเดียว
-);
-COMMENT ON TABLE features IS 'ความสามารถที่ขายหรือให้สิทธิ์ได้';
-
-CREATE TABLE products (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code          text NOT NULL UNIQUE,
-  name          text NOT NULL,
-  product_type  text NOT NULL CHECK (product_type IN ('seat_subscription', 'credit_pack', 'course', 'physical')),
-  is_active     boolean NOT NULL DEFAULT true,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  updated_at    timestamptz NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE products IS 'สินค้า/แพ็กเกจเป็นข้อมูล ไม่ hard-code (ข้อ 47) · ราคายัง OPEN จึงไม่มีคอลัมน์ราคา';
-
-CREATE TABLE product_features (
-  product_id    uuid NOT NULL REFERENCES products (id) ON DELETE CASCADE,
-  feature_code  text NOT NULL REFERENCES features (code),
-  quota         integer CHECK (quota >= 0),   -- null = ไม่จำกัด
-  quota_period  text CHECK (quota_period IN ('month', 'year', 'lifetime')),
-  PRIMARY KEY (product_id, feature_code),
-  CHECK ((quota IS NULL) = (quota_period IS NULL))
-);
-COMMENT ON TABLE product_features IS 'สินค้าแต่ละตัวให้ feature อะไร โควตาเท่าไร · ตัวเลขโควตายัง OPEN (ข้อ 36)';
-
-CREATE TABLE seat_pools (
-  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  product_id             uuid NOT NULL REFERENCES products (id),
-  purchase_type          text NOT NULL CHECK (purchase_type IN ('individual', 'set', 'b2b')),  -- ข้อ 60.8 [CONFIRMED]
-  owner_organization_id  uuid REFERENCES organizations (id),
-  owner_user_id          uuid REFERENCES users (id),
-  seat_count             integer NOT NULL CHECK (seat_count > 0),
-  source                 text NOT NULL CHECK (source IN ('purchase', 'manual_grant', 'trial', 'promotion')),
-  order_item_id          uuid,             -- FK เพิ่มในส่วน Billing
-  starts_at              timestamptz NOT NULL,
-  ends_at                timestamptz,      -- อายุ seat ยัง OPEN
-  created_by             uuid REFERENCES users (id),
+CREATE TABLE staff_members (
+  user_id                uuid PRIMARY KEY REFERENCES users (id),
+  two_factor_enabled_at  timestamptz,            -- ต้องเปิดก่อนเข้าหลังบ้าน
+  is_active              boolean NOT NULL DEFAULT true,
   created_at             timestamptz NOT NULL DEFAULT now(),
-  CHECK (num_nonnulls(owner_organization_id, owner_user_id) = 1),
-  CHECK (purchase_type <> 'individual' OR seat_count = 1),
-  CHECK (ends_at IS NULL OR ends_at > starts_at)
+  updated_at             timestamptz NOT NULL DEFAULT now()
 );
-COMMENT ON TABLE seat_pools IS 'ก้อน seat ที่ซื้อหรือได้รับ (รายคน / ชุด / B2B) · ขนาดชุด 10-20-30 อยู่ที่ข้อมูล ไม่ใช่ constraint';
+COMMENT ON TABLE staff_members IS 'ทีมงาน เข้าด้วย Google ของบริษัท + ยืนยัน 2 ขั้น · เห็นเฉพาะเมนูของบทบาทตัวเอง';
 
-CREATE TABLE seat_assignments (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  seat_pool_id  uuid NOT NULL REFERENCES seat_pools (id),
-  user_id       uuid NOT NULL REFERENCES users (id),
-  assigned_by   uuid REFERENCES users (id),
-  assigned_at   timestamptz NOT NULL DEFAULT now(),
-  revoked_at    timestamptz,
-  revoked_by    uuid REFERENCES users (id),
-  revoke_reason text                       -- การดึง seat คืน/ย้ายยัง OPEN (ข้อ 36)
+CREATE TABLE staff_member_roles (
+  user_id     uuid NOT NULL REFERENCES staff_members (user_id),
+  role_code   text NOT NULL REFERENCES staff_roles (code),
+  granted_by  uuid REFERENCES users (id),
+  granted_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, role_code)
 );
-CREATE UNIQUE INDEX seat_assignments_active_key ON seat_assignments (seat_pool_id, user_id) WHERE revoked_at IS NULL;
-COMMENT ON TABLE seat_assignments IS 'แจก seat ให้ครู · trigger กันแจกเกินจำนวน seat แม้มีคนกดพร้อมกัน';
+COMMENT ON TABLE staff_member_roles IS '[ตารางเสริม] ทีมงาน 1 คนมีได้หลายบทบาท';
 
--- กันแจก seat เกินจำนวน: ล็อกแถว pool ก่อนนับ จึงไม่เกิด race condition แบบระบบเดิม (study หัวข้อ 6.3)
-CREATE FUNCTION enforce_seat_capacity() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-  capacity integer;
-  used     integer;
+
+-- =============================================================================
+-- 2. สิทธิ์และเครดิต — หัวใจ 1 (system-plan ส่วนที่ 5)
+-- =============================================================================
+
+CREATE TABLE system_settings (
+  key          text PRIMARY KEY,                 -- เช่น pro_launch_at, quotation_valid_days
+  value        jsonb NOT NULL,
+  description  text NOT NULL,
+  updated_by   uuid REFERENCES users (id),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE system_settings IS 'ค่ากติกาที่ทีมงานตั้งในหลังบ้าน · ทุกการแก้บันทึกลง audit_logs';
+
+CREATE TABLE entitlement_defs (
+  code          text PRIMARY KEY,                -- ต้องตรงกับที่โค้ดเช็ก จึงให้โปรแกรมเมอร์เพิ่ม
+  name          text NOT NULL,
+  value_type    text NOT NULL CHECK (value_type IN ('flag', 'number', 'percent')),
+  combine_rule  text CHECK (combine_rule IN ('max', 'sum')),  -- หลายรายการรวมกันอย่างไร
+  description   text,
+  CHECK ((value_type = 'flag') = (combine_rule IS NULL))
+);
+COMMENT ON TABLE entitlement_defs IS 'รายการสิทธิ์ (system-plan 5.2) · flag = ใช้ได้/ไม่ได้ · number/percent ต้องบอกวิธีรวม';
+
+CREATE TABLE credit_types (
+  code             text PRIMARY KEY,             -- เช่น coach_session, canvas_analysis, voucher.zoom30
+  name             text NOT NULL,
+  once_per_holder  boolean NOT NULL DEFAULT false,  -- คูปองที่ได้ครั้งเดียวต่อบัญชี (กติกา H)
+  description      text
+);
+COMMENT ON TABLE credit_types IS 'ชนิดเครดิต รวมคูปองใช้ครั้งเดียว';
+
+CREATE TABLE plans (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code        text NOT NULL UNIQUE,
+  name        text NOT NULL,
+  plan_type   text NOT NULL CHECK (plan_type IN ('free', 'subscription', 'code', 'topup', 'bundle', 'org')),
+  is_active   boolean NOT NULL DEFAULT true,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE plans IS 'แพ็กเกจ = ชุดของสิทธิ์ + เครดิต + ระยะเวลา ที่ทีมงานตั้งในหลังบ้าน (A7)';
+
+CREATE TABLE plan_versions (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plan_id          uuid NOT NULL REFERENCES plans (id),
+  version          integer NOT NULL CHECK (version > 0),
+  billing_cycle    text NOT NULL CHECK (billing_cycle IN ('once', 'month', 'year')),  -- ราคาอยู่ที่ prices ของสินค้าที่ผูกแพ็กเกจนี้
+  available_from   timestamptz NOT NULL DEFAULT now(),
+  available_until  timestamptz,
+  created_by       uuid REFERENCES users (id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (plan_id, version),
+  CHECK (available_until IS NULL OR available_until > available_from)
+);
+CREATE TRIGGER plan_versions_fill_once BEFORE UPDATE OR DELETE ON plan_versions
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('available_until');
+COMMENT ON TABLE plan_versions IS 'แก้สิทธิ์ = สร้างเวอร์ชันใหม่ ผู้ที่ได้ไปแล้วได้ตามเวอร์ชันเดิม · เวอร์ชันเก่าปิดด้วย available_until · ราคาขายเก็บที่เดียวคือ prices';
+
+CREATE TABLE plan_version_parts (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plan_version_id  uuid NOT NULL REFERENCES plan_versions (id),
+  code             text NOT NULL,                -- เช่น main, instant, pro
+  name             text NOT NULL,
+  duration_months  integer CHECK (duration_months > 0),  -- NULL = ไม่หมดอายุ
+  start_condition  text CHECK (start_condition IN ('pro_launch')),  -- รอเหตุการณ์ก่อนเริ่ม
+  UNIQUE (plan_version_id, code),
+  UNIQUE (id, plan_version_id)
+);
+CREATE TRIGGER plan_version_parts_append_only BEFORE UPDATE OR DELETE ON plan_version_parts
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE plan_version_parts IS '[ตารางเสริม] ส่วนของแพ็กเกจที่เริ่มหรือหมดไม่พร้อมกัน เช่น รหัสในกล่อง = ส่วนได้ทันที + ส่วน Pro 3 เดือนที่รอเปิดระบบ Pro (system-plan 5.5)';
+
+CREATE TABLE plan_version_items (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  part_id              uuid NOT NULL REFERENCES plan_version_parts (id),
+  entitlement_code     text REFERENCES entitlement_defs (code),
+  entitlement_value    numeric CHECK (entitlement_value >= 0),  -- flag = NULL
+  is_unlimited         boolean NOT NULL DEFAULT false,          -- เช่น ห้องเรียนไม่จำกัดของ Pro
+  credit_type_code     text REFERENCES credit_types (code),
+  credit_amount        integer CHECK (credit_amount > 0),
+  credit_refill        text CHECK (credit_refill IN ('once', 'monthly')),  -- monthly = เติมทุกรอบเดือนนับจากวันเริ่ม
+  credit_valid_months  integer CHECK (credit_valid_months > 0),  -- อายุของก้อนแบบ once · NULL = ไม่หมดอายุ
+  CHECK (num_nonnulls(entitlement_code, credit_type_code) = 1),
+  CHECK (NOT (is_unlimited AND entitlement_value IS NOT NULL)),
+  CHECK ((credit_type_code IS NULL) = (credit_amount IS NULL)),
+  CHECK ((credit_type_code IS NULL) = (credit_refill IS NULL)),
+  CHECK (credit_refill IS DISTINCT FROM 'monthly' OR credit_valid_months IS NULL)
+);
+CREATE TRIGGER plan_version_items_append_only BEFORE UPDATE OR DELETE ON plan_version_items
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE plan_version_items IS 'สิทธิ์หรือเครดิตแต่ละรายการในส่วนของแพ็กเกจ · เครดิตรายเดือนหมดอายุสิ้นรอบเดือนของตัวเอง';
+
+CREATE TABLE grants (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  holder_user_id   uuid REFERENCES users (id),
+  holder_org_id    uuid REFERENCES organizations (id),
+  plan_version_id  uuid NOT NULL REFERENCES plan_versions (id),
+  part_id          uuid NOT NULL,
+  source_type      text NOT NULL CHECK (source_type IN (
+                     'signup', 'order', 'subscription', 'redeem_code', 'staff', 'transfer', 'backfill')),
+  source_ref       text,                         -- id ของคำสั่งซื้อ รหัสในกล่อง หรือ subscription
+  source_batch_id  uuid NOT NULL,                -- เลขชุดที่มา: ทุกรายการจากการซื้อหรือกดรหัสครั้งเดียวกันใช้เลขเดียวกัน
+  start_condition  text CHECK (start_condition IN ('pro_launch')),
+  starts_at        timestamptz,                  -- NULL = รอเริ่ม
+  ends_at          timestamptz,                  -- NULL = ไม่หมดอายุ (หรือยังรอเริ่ม)
+  is_grace         boolean NOT NULL DEFAULT false,  -- ช่วงผ่อนผันเมื่อตัดบัตรไม่ผ่าน (กติกา C)
+  reason           text,                         -- ต้องกรอกเมื่อทีมงานให้เอง ย้ายสิทธิ์ หรือมอบย้อนหลัง
+  created_by       uuid REFERENCES users (id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  cancelled_at     timestamptz,
+  cancelled_by     uuid REFERENCES users (id),
+  cancel_reason    text,
+  FOREIGN KEY (part_id, plan_version_id) REFERENCES plan_version_parts (id, plan_version_id),
+  CHECK (num_nonnulls(holder_user_id, holder_org_id) = 1),
+  CHECK (starts_at IS NOT NULL OR (start_condition IS NOT NULL AND ends_at IS NULL)),
+  CHECK (ends_at IS NULL OR ends_at > starts_at),
+  CHECK (source_type NOT IN ('staff', 'transfer', 'backfill') OR (reason IS NOT NULL AND created_by IS NOT NULL)),
+  CHECK ((cancelled_at IS NULL) = (cancel_reason IS NULL))
+);
+CREATE INDEX grants_user_idx ON grants (holder_user_id) WHERE cancelled_at IS NULL;
+CREATE INDEX grants_org_idx ON grants (holder_org_id) WHERE cancelled_at IS NULL;
+CREATE INDEX grants_source_batch_idx ON grants (source_batch_id);
+CREATE INDEX grants_waiting_idx ON grants (start_condition) WHERE starts_at IS NULL AND cancelled_at IS NULL;
+CREATE TRIGGER grants_fill_once BEFORE UPDATE OR DELETE ON grants
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('starts_at', 'ends_at', 'cancelled_at', 'cancelled_by', 'cancel_reason');
+COMMENT ON TABLE grants IS 'การได้สิทธิ์ 1 รายการ: ใครได้ส่วนไหนของแพ็กเกจ จากไหน เมื่อไรถึงเมื่อไร · ห้ามแก้ทับ ห้ามลบ · สถานะอ่านจาก view grant_statuses';
+
+CREATE TABLE credit_ledger (
+  id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  holder_user_id    uuid REFERENCES users (id),
+  holder_org_id     uuid REFERENCES organizations (id),
+  credit_type_code  text NOT NULL REFERENCES credit_types (code),
+  entry_type        text NOT NULL CHECK (entry_type IN ('grant', 'use', 'return', 'revoke')),
+  amount            integer NOT NULL CHECK (amount <> 0),
+  lot_id            bigint REFERENCES credit_ledger (id),  -- use / return / revoke: ก้อนที่ถูกหักหรือคืน
+  expires_at        timestamptz,                -- grant: ก้อนนี้หมดอายุเมื่อไร · NULL = ไม่หมดอายุ
+  grant_id          uuid REFERENCES grants (id),  -- grant: มาจากการได้สิทธิ์รายการไหน
+  reverses_id       bigint REFERENCES credit_ledger (id),  -- return: คืนรายการ use ไหน
+  usage_ref_type    text,                        -- use: ใช้กับอะไร เช่น canvas, order
+  usage_ref_id      text,
+  reason            text,
+  created_by        uuid REFERENCES users (id),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  CHECK (num_nonnulls(holder_user_id, holder_org_id) = 1),
+  CHECK ((entry_type = 'grant') = (lot_id IS NULL)),
+  CHECK (entry_type = 'grant' OR (expires_at IS NULL AND grant_id IS NULL)),
+  CHECK (entry_type IN ('use', 'revoke') OR amount > 0),
+  CHECK (entry_type NOT IN ('use', 'revoke') OR amount < 0),
+  CHECK ((entry_type = 'return') = (reverses_id IS NOT NULL)),
+  CHECK (entry_type <> 'grant' OR grant_id IS NOT NULL OR reason IS NOT NULL)
+);
+CREATE INDEX credit_ledger_lots_idx ON credit_ledger (holder_user_id, credit_type_code, expires_at) WHERE entry_type = 'grant';
+CREATE INDEX credit_ledger_org_lots_idx ON credit_ledger (holder_org_id, credit_type_code, expires_at) WHERE entry_type = 'grant';
+CREATE INDEX credit_ledger_lot_entries_idx ON credit_ledger (lot_id) WHERE lot_id IS NOT NULL;
+CREATE UNIQUE INDEX credit_ledger_return_once ON credit_ledger (reverses_id) WHERE reverses_id IS NOT NULL;
+CREATE TRIGGER credit_ledger_append_only BEFORE UPDATE OR DELETE ON credit_ledger
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE credit_ledger IS 'สมุดเครดิต ห้ามแก้ ห้ามลบ · รายการ grant คือ "ก้อน" ที่มีวันหมดอายุ · รายการอื่นอ้างก้อนที่ถูกหักหรือคืน · หักผ่าน use_credit() เท่านั้น';
+
+CREATE TABLE subscriptions (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                   uuid NOT NULL REFERENCES users (id),
+  plan_version_id           uuid NOT NULL REFERENCES plan_versions (id),
+  provider                  text NOT NULL CHECK (provider IN ('stripe', 'opn')),
+  provider_subscription_id  text NOT NULL,
+  status                    text NOT NULL CHECK (status IN ('active', 'past_due', 'canceled')),
+  current_period_end        timestamptz NOT NULL,
+  cancel_at_period_end      boolean NOT NULL DEFAULT false,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  updated_at                timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_subscription_id)
+);
+CREATE UNIQUE INDEX subscriptions_one_open ON subscriptions (user_id) WHERE status <> 'canceled';
+COMMENT ON TABLE subscriptions IS 'Pro รายเดือนที่ตัดบัตรอัตโนมัติ (สถานะตามผู้ให้บริการ) · แต่ละรอบที่ตัดสำเร็จสร้าง grants ใหม่ 1 รายการ';
+
+
+-- =============================================================================
+-- 3. รหัสในกล่อง (system-plan 6.7)
+-- =============================================================================
+
+CREATE TABLE code_batches (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name             text NOT NULL,
+  plan_version_id  uuid NOT NULL REFERENCES plan_versions (id),
+  quantity         integer NOT NULL CHECK (quantity > 0),
+  created_by       uuid NOT NULL REFERENCES users (id),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  exported_at      timestamptz,                  -- ส่งออกให้โรงพิมพ์ได้ครั้งเดียว · ส่งซ้ำต้องมีสิทธิ์พิเศษและบันทึกใน audit_logs
+  exported_by      uuid REFERENCES users (id),
+  boxed_at         timestamptz,                  -- ทีมงานบันทึกว่ารหัสชุดนี้อยู่ในกล่องพร้อมขายแล้ว
+  boxed_by         uuid REFERENCES users (id),
+  cancelled_at     timestamptz,
+  cancelled_by     uuid REFERENCES users (id),
+  cancel_reason    text,
+  CHECK ((exported_at IS NULL) = (exported_by IS NULL)),
+  CHECK ((boxed_at IS NULL) = (boxed_by IS NULL)),
+  CHECK ((cancelled_at IS NULL) = (cancel_reason IS NULL))
+);
+CREATE TRIGGER code_batches_fill_once BEFORE UPDATE OR DELETE ON code_batches
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once(
+    'exported_at', 'exported_by', 'boxed_at', 'boxed_by', 'cancelled_at', 'cancelled_by', 'cancel_reason');
+COMMENT ON TABLE code_batches IS 'รหัสในกล่องสร้างเป็นชุด ผูกกับแพ็กเกจ "รหัสในกล่อง" เวอร์ชันที่กำหนด';
+
+CREATE TABLE redeem_codes (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id         uuid NOT NULL REFERENCES code_batches (id),
+  code_hash        text NOT NULL UNIQUE,          -- sha256 ของรหัส · ไม่เก็บรหัสจริง
+  last4            text NOT NULL CHECK (length(last4) = 4),  -- ให้ทีมงานค้นหาและอ้างถึง
+  redeemed_by      uuid REFERENCES users (id),
+  redeemed_at      timestamptz,
+  grant_batch_id   uuid,                          -- source_batch_id ของ grants ที่เกิดจากการกดรหัสนี้
+  cancelled_at     timestamptz,
+  cancelled_by     uuid REFERENCES users (id),
+  cancel_reason    text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  CHECK ((redeemed_by IS NULL) = (redeemed_at IS NULL)),
+  CHECK ((redeemed_at IS NULL) = (grant_batch_id IS NULL)),
+  CHECK ((cancelled_at IS NULL) = (cancel_reason IS NULL))
+);
+CREATE INDEX redeem_codes_batch_idx ON redeem_codes (batch_id);
+CREATE INDEX redeem_codes_redeemer_idx ON redeem_codes (redeemed_by) WHERE redeemed_by IS NOT NULL;
+CREATE TRIGGER redeem_codes_fill_once BEFORE UPDATE OR DELETE ON redeem_codes
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once(
+    'redeemed_by', 'redeemed_at', 'grant_batch_id', 'cancelled_at', 'cancelled_by', 'cancel_reason');
+COMMENT ON TABLE redeem_codes IS 'รหัส 1 รหัสใช้ได้ 1 บัญชี · ย้ายสิทธิ์ = ยกเลิก grants เดิมแล้วสร้างใหม่ให้บัญชีปลายทาง (source_type = transfer)';
+
+-- กดรหัสที่ถูกยกเลิกแล้ว หรืออยู่ในชุดที่ถูกยกเลิก ไม่ได้
+CREATE FUNCTION redeem_codes_check_usable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.revoked_at IS NOT NULL THEN
-    RETURN NEW;
-  END IF;
-  SELECT seat_count INTO capacity FROM seat_pools WHERE id = NEW.seat_pool_id FOR UPDATE;
-  SELECT count(*) INTO used FROM seat_assignments
-   WHERE seat_pool_id = NEW.seat_pool_id AND revoked_at IS NULL AND id <> NEW.id;
-  IF used >= capacity THEN
-    RAISE EXCEPTION 'seat pool % เต็มแล้ว (% ที่)', NEW.seat_pool_id, capacity USING ERRCODE = 'check_violation';
+  IF NEW.redeemed_at IS NOT NULL AND OLD.redeemed_at IS NULL THEN
+    IF OLD.cancelled_at IS NOT NULL
+       OR (SELECT cancelled_at FROM code_batches WHERE id = NEW.batch_id) IS NOT NULL THEN
+      RAISE EXCEPTION 'รหัสนี้ถูกยกเลิกแล้ว' USING ERRCODE = 'check_violation';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
-CREATE TRIGGER seat_assignments_capacity
-  BEFORE INSERT OR UPDATE OF seat_pool_id, revoked_at ON seat_assignments
-  FOR EACH ROW EXECUTE FUNCTION enforce_seat_capacity();
+CREATE TRIGGER redeem_codes_check_usable BEFORE UPDATE ON redeem_codes
+  FOR EACH ROW EXECUTE FUNCTION redeem_codes_check_usable();
 
-CREATE TABLE entitlements (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id             uuid NOT NULL REFERENCES users (id),
-  product_id          uuid NOT NULL REFERENCES products (id),
-  organization_id     uuid REFERENCES organizations (id),  -- องค์กรที่ให้สิทธิ์ (ถ้ามี)
-  source              text NOT NULL CHECK (source IN ('seat', 'manual_grant', 'trial', 'promotion', 'course')),
-  seat_assignment_id  uuid REFERENCES seat_assignments (id),
-  starts_at           timestamptz NOT NULL,
-  ends_at             timestamptz,
-  granted_by          uuid REFERENCES users (id),
-  revoked_at          timestamptz,
-  created_at          timestamptz NOT NULL DEFAULT now(),
-  CHECK ((source = 'seat') = (seat_assignment_id IS NOT NULL)),
-  CHECK (ends_at IS NULL OR ends_at > starts_at)
+CREATE TABLE redeem_attempts (
+  id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id      uuid REFERENCES users (id),
+  client_key   text NOT NULL,                     -- ตัวแทนเครื่องหรือ IP สำหรับจำกัดจำนวนครั้ง
+  code_masked  text NOT NULL,                     -- เก็บแบบปิดบัง ไม่เก็บรหัสเต็ม
+  result       text NOT NULL CHECK (result IN (
+                 'redeemed', 'not_found', 'already_used', 'cancelled', 'rule_blocked', 'rate_limited')),
+  created_at   timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX entitlements_user_idx ON entitlements (user_id) WHERE revoked_at IS NULL;
-COMMENT ON TABLE entitlements IS 'สิทธิ์ใช้งานของแต่ละคน · API ตรวจสิทธิ์ใช้ฟีเจอร์จากตารางนี้ที่เดียว (ข้อ 42)';
-
-CREATE TABLE usage_ledger (
-  id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  user_id         uuid NOT NULL REFERENCES users (id),
-  feature_code    text NOT NULL REFERENCES features (code),
-  entitlement_id  uuid REFERENCES entitlements (id),
-  delta           integer NOT NULL CHECK (delta <> 0),
-  reason          text NOT NULL CHECK (reason IN ('trial_grant', 'quota_grant', 'purchase', 'usage', 'refund', 'manual_adjust', 'expire')),
-  ai_job_id       uuid,                    -- FK เพิ่มในส่วน AI
-  note            text,
-  created_by      uuid REFERENCES users (id),
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  -- การใช้และการหมดอายุต้องติดลบ ส่วนการเติมต้องเป็นบวก
-  CHECK (reason = 'manual_adjust' OR (reason IN ('usage', 'expire')) = (delta < 0))
-);
-CREATE UNIQUE INDEX usage_ledger_one_charge_per_job ON usage_ledger (ai_job_id) WHERE reason = 'usage';
-CREATE INDEX usage_ledger_balance_idx ON usage_ledger (user_id, feature_code);
-COMMENT ON TABLE usage_ledger IS 'บัญชีเครดิต/โควตาแบบบันทึกเพิ่มอย่างเดียว ยอดคงเหลือ = SUM(delta) · ลองฟรี 1 ครั้ง = trial_grant (ข้อ 60.10.4)';
-
-CREATE VIEW usage_balances AS
-SELECT user_id, feature_code, sum(delta)::integer AS balance
-FROM usage_ledger
-GROUP BY user_id, feature_code;
+CREATE INDEX redeem_attempts_user_idx ON redeem_attempts (user_id, created_at DESC);
+CREATE INDEX redeem_attempts_client_idx ON redeem_attempts (client_key, created_at DESC);
+CREATE TRIGGER redeem_attempts_append_only BEFORE UPDATE OR DELETE ON redeem_attempts
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE redeem_attempts IS 'กันการเดารหัส เช่น ผิด 5 ครั้งรอ 15 นาที (ค่าอยู่ใน system_settings)';
 
 
 -- =============================================================================
--- 6. Billing [Should] — ใบสั่งซื้อและการชำระเงิน แยกจาก Entitlement (ข้อ 39–41)
---    เริ่มจากโอนเงิน/แนบสลิปแล้วแอดมินยืนยัน · payment gateway ยัง OPEN
+-- 4. อบรม (Phase 1 แบบย่อ · system-plan ส่วนที่ 8–9)
 -- =============================================================================
 
-CREATE TABLE billing_profiles (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id  uuid REFERENCES organizations (id),
-  user_id          uuid REFERENCES users (id),
-  billing_name     text NOT NULL,
-  tax_id           text,
-  branch_code      text,
-  billing_address  text NOT NULL,
-  email            citext,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  CHECK (num_nonnulls(organization_id, user_id) = 1)
+CREATE TABLE events (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type  text NOT NULL CHECK (event_type IN ('webinar', 'zoom', 'onsite')),
+  title       text NOT NULL,
+  starts_at   timestamptz NOT NULL,
+  ends_at     timestamptz NOT NULL,
+  join_url    text,                              -- ส่งให้เฉพาะผู้มีที่นั่ง
+  location    text,
+  status      text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'cancelled')),
+  created_by  uuid REFERENCES users (id),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  CHECK (ends_at > starts_at)
 );
-COMMENT ON TABLE billing_profiles IS '[Should] ชื่อและที่อยู่ออกเอกสาร · workflow ใบกำกับภาษียัง OPEN (ข้อ 41)';
+COMMENT ON TABLE events IS 'เวบินาร์ฟรี เวิร์กช็อป onZoom และ onSite';
+
+CREATE TABLE seat_pools (
+  id                         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id                   uuid NOT NULL REFERENCES events (id),
+  name                       text NOT NULL,     -- เช่น ที่นั่งฟรีสมาชิกรายปี, ที่นั่งจ่ายเงิน
+  capacity                   integer NOT NULL CHECK (capacity > 0),
+  price_satang               bigint NOT NULL DEFAULT 0 CHECK (price_satang >= 0),
+  required_entitlement_code  text REFERENCES entitlement_defs (code),  -- ใครจองได้ เช่น seat.free_zoom
+  accepts_pro_discount       boolean NOT NULL DEFAULT false,
+  accepted_voucher_type      text REFERENCES credit_types (code),     -- เช่น voucher.zoom30 · onSite ไม่รับ
+  allocation                 text NOT NULL DEFAULT 'first_come' CHECK (allocation IN ('first_come', 'lottery')),
+  prerequisite_note          text,              -- เงื่อนไขก่อนเข้า เช่น เรียนบทออนไลน์ผ่าน (Phase 2)
+  prerequisite_enforcement   text NOT NULL DEFAULT 'none' CHECK (prerequisite_enforcement IN ('none', 'warn', 'forfeit')),
+  prerequisite_deadline      timestamptz,
+  booking_opens_at           timestamptz,
+  booking_closes_at          timestamptz,
+  created_at                 timestamptz NOT NULL DEFAULT now(),
+  updated_at                 timestamptz NOT NULL DEFAULT now(),
+  CHECK (prerequisite_enforcement = 'none' OR prerequisite_deadline IS NOT NULL)
+);
+COMMENT ON TABLE seat_pools IS 'กองที่นั่งของแต่ละรอบ · กองแต่ละกองบอกเองว่ารับส่วนลดแบบไหน (ส่วนลดไม่ซ้อนกัน)';
+
+
+-- =============================================================================
+-- 5. ซื้อขายและรับเงิน — หัวใจ 2 (system-plan ส่วนที่ 6)
+-- =============================================================================
+
+CREATE TABLE products (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code         text NOT NULL UNIQUE,
+  product_type text NOT NULL CHECK (product_type IN ('physical', 'subscription', 'topup', 'org_package')),
+  name         text NOT NULL,
+  description  text,
+  plan_id      uuid REFERENCES plans (id),       -- ได้สิทธิ์ตามแพ็กเกจนี้หลังจ่าย · การ์ดไม่มี เพราะได้สิทธิ์ผ่านรหัสในกล่อง
+  tracks_stock boolean NOT NULL DEFAULT false,
+  buyer_type   text NOT NULL DEFAULT 'anyone' CHECK (buyer_type IN ('anyone', 'organization')),
+  is_on_sale   boolean NOT NULL DEFAULT false,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CHECK (product_type = 'physical' OR plan_id IS NOT NULL),  -- สมุดบันทึกความสุขเป็นของจับต้องได้ที่มีแพ็กเกจด้วย
+  CHECK (product_type = 'physical' OR NOT tracks_stock)
+);
+COMMENT ON TABLE products IS 'สินค้า · ที่นั่งอบรมไม่อยู่ที่นี่ ขายผ่าน seat_pools · สมุดบันทึกความสุขขายให้โรงเรียนเท่านั้น (buyer_type)';
+
+CREATE TABLE prices (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id     uuid NOT NULL REFERENCES products (id),
+  price_satang   bigint NOT NULL CHECK (price_satang >= 0),
+  min_quantity   integer NOT NULL DEFAULT 1 CHECK (min_quantity > 0),  -- ราคาขั้นจำนวน เช่น 5 ชุดขึ้นไป
+  valid_from     timestamptz NOT NULL DEFAULT now(),
+  valid_until    timestamptz,                    -- ราคาช่วงโปรโมชันมีวันจบ
+  includes_vat   boolean NOT NULL DEFAULT true,
+  created_by     uuid REFERENCES users (id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CHECK (valid_until IS NULL OR valid_until > valid_from)
+);
+CREATE INDEX prices_lookup_idx ON prices (product_id, min_quantity, valid_from);
+CREATE TRIGGER prices_fill_once BEFORE UPDATE OR DELETE ON prices
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('valid_until');
+COMMENT ON TABLE prices IS 'ราคาแก้ทับไม่ได้ เปลี่ยนราคา = ปิดราคาเดิม (valid_until) แล้วเพิ่มราคาใหม่ · อ่านราคาผ่าน unit_price()';
+
+CREATE TABLE inventory_movements (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  product_id     uuid NOT NULL REFERENCES products (id),
+  quantity       integer NOT NULL CHECK (quantity <> 0),
+  movement_type  text NOT NULL CHECK (movement_type IN ('receive', 'sale', 'return', 'adjust')),
+  order_id       uuid,                           -- FK ใส่หลังสร้าง orders
+  note           text,
+  created_by     uuid REFERENCES users (id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CHECK (movement_type NOT IN ('receive', 'return') OR quantity > 0),
+  CHECK (movement_type <> 'sale' OR (quantity < 0 AND order_id IS NOT NULL)),
+  CHECK (movement_type <> 'adjust' OR note IS NOT NULL)
+);
+CREATE INDEX inventory_movements_product_idx ON inventory_movements (product_id);
+CREATE TRIGGER inventory_movements_append_only BEFORE UPDATE OR DELETE ON inventory_movements
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE inventory_movements IS 'สต็อกเป็นรายการรับเข้าและตัดออก ห้ามแก้ · ยอดคงเหลืออ่านจาก view product_stock';
+
+CREATE TABLE product_waitlist (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id   uuid NOT NULL REFERENCES products (id),
+  user_id      uuid NOT NULL REFERENCES users (id),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  notified_at  timestamptz
+);
+CREATE UNIQUE INDEX product_waitlist_open_key ON product_waitlist (product_id, user_id) WHERE notified_at IS NULL;
+COMMENT ON TABLE product_waitlist IS 'ปุ่ม "แจ้งฉันเมื่อวางขาย" (F3, กติกา K)';
 
 CREATE TABLE orders (
   id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_no            text NOT NULL UNIQUE,
-  billing_profile_id  uuid NOT NULL REFERENCES billing_profiles (id),
+  order_number        text NOT NULL UNIQUE,      -- เลขที่แสดงให้ลูกค้าเห็น
   buyer_user_id       uuid NOT NULL REFERENCES users (id),
-  status              text NOT NULL DEFAULT 'draft'
-                      CHECK (status IN ('draft', 'quoted', 'awaiting_payment', 'paid', 'cancelled')),
-  currency            char(3) NOT NULL DEFAULT 'THB',
-  subtotal            numeric(12, 2) NOT NULL DEFAULT 0 CHECK (subtotal >= 0),
-  discount            numeric(12, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
-  vat_amount          numeric(12, 2) NOT NULL DEFAULT 0 CHECK (vat_amount >= 0),
-  total               numeric(12, 2) NOT NULL DEFAULT 0 CHECK (total >= 0),
-  invoice_no          text UNIQUE,
-  invoiced_at         timestamptz,
-  due_at              timestamptz,
-  note                text,
+  on_behalf_org_id    uuid REFERENCES organizations (id),  -- ซื้อในนามโรงเรียน
+  status              text NOT NULL DEFAULT 'pending_payment' CHECK (status IN (
+                        'pending_payment', 'awaiting_verification', 'underpaid', 'paid',
+                        'awaiting_packing', 'shipped', 'code_redeemed', 'completed',
+                        'cancelled', 'expired', 'partially_refunded', 'refunded')),
+  subtotal_satang     bigint NOT NULL CHECK (subtotal_satang >= 0),
+  discount_satang     bigint NOT NULL DEFAULT 0 CHECK (discount_satang >= 0),
+  shipping_satang     bigint NOT NULL DEFAULT 0 CHECK (shipping_satang >= 0),
+  total_satang        bigint NOT NULL CHECK (total_satang >= 0),
+  vat_satang          bigint NOT NULL DEFAULT 0 CHECK (vat_satang >= 0),  -- VAT ที่รวมอยู่ใน total แล้ว
+  withholding_satang  bigint NOT NULL DEFAULT 0 CHECK (withholding_satang >= 0),  -- หัก ณ ที่จ่ายที่ตกลงไว้
+  amount_due_satang   bigint NOT NULL,           -- ยอดที่ต้องได้รับ = total − หัก ณ ที่จ่าย
+  payment_due_at      timestamptz,               -- หมดเวลาชำระ · ใบเสนอราคาใช้วันยืนราคาของใบนั้น
+  quotation_id        uuid,                      -- FK ใส่หลังสร้าง financial_documents
+  billing_snapshot    jsonb,                     -- ข้อมูลออกเอกสาร ณ ตอนซื้อ
+  billing_checked_by  uuid REFERENCES users (id),  -- ทีมงานตรวจข้อมูลใบกำกับในนามโรงเรียนก่อนจ่าย (กติกา J)
+  billing_checked_at  timestamptz,
+  shipping_snapshot   jsonb,                     -- ที่อยู่จัดส่ง ณ ตอนซื้อ
   created_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at          timestamptz NOT NULL DEFAULT now()
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CHECK (total_satang = subtotal_satang - discount_satang + shipping_satang),
+  CHECK (vat_satang <= total_satang),
+  CHECK (amount_due_satang = total_satang - withholding_satang),
+  CHECK (amount_due_satang >= 0),
+  CHECK ((billing_checked_by IS NULL) = (billing_checked_at IS NULL))
 );
-COMMENT ON TABLE orders IS '[Should] ใบเสนอราคา/ใบแจ้งหนี้ ตามขั้นตอน B2B ในข้อ 40';
+CREATE INDEX orders_buyer_idx ON orders (buyer_user_id, created_at DESC);
+CREATE INDEX orders_open_status_idx ON orders (status)
+  WHERE status IN ('awaiting_verification', 'underpaid', 'paid', 'awaiting_packing');
+COMMENT ON TABLE orders IS 'คำสั่งซื้อเก็บสำเนาราคาและข้อมูล ณ ตอนซื้อ · สถานะเปลี่ยนได้ตามลูกศรเท่านั้น (orders_guard) และบันทึกประวัติเอง';
+
+ALTER TABLE inventory_movements ADD FOREIGN KEY (order_id) REFERENCES orders (id);
 
 CREATE TABLE order_items (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id     uuid NOT NULL REFERENCES orders (id) ON DELETE CASCADE,
-  product_id   uuid NOT NULL REFERENCES products (id),
-  quantity     integer NOT NULL CHECK (quantity > 0),       -- จำนวน seat หรือจำนวนชิ้น
-  unit_price   numeric(12, 2) NOT NULL CHECK (unit_price >= 0),
-  amount       numeric(12, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
-  description  text
-);
-COMMENT ON TABLE order_items IS '[Should] รายการในใบสั่งซื้อ · ราคาเก็บ ณ วันที่ขาย';
-
-ALTER TABLE seat_pools
-  ADD CONSTRAINT seat_pools_order_item_fk FOREIGN KEY (order_item_id) REFERENCES order_items (id);
-
-CREATE TABLE payments (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id           uuid NOT NULL REFERENCES orders (id),
-  method             text NOT NULL CHECK (method IN ('bank_transfer', 'promptpay', 'card', 'gateway', 'other')),
-  amount             numeric(12, 2) NOT NULL CHECK (amount > 0),
-  status             text NOT NULL DEFAULT 'pending_verification'
-                     CHECK (status IN ('pending_verification', 'verified', 'rejected', 'refunded')),
-  slip_file_id       uuid REFERENCES files (id),
-  gateway_reference  text,
-  paid_at            timestamptz,
-  verified_by        uuid REFERENCES users (id),
-  verified_at        timestamptz,
-  rejection_reason   text,
-  created_by         uuid REFERENCES users (id),
+  product_id         uuid REFERENCES products (id),
+  seat_pool_id       uuid REFERENCES seat_pools (id),
+  name_snapshot      text NOT NULL,
+  unit_price_satang  bigint NOT NULL CHECK (unit_price_satang >= 0),
+  quantity           integer NOT NULL CHECK (quantity > 0),
+  discount_satang    bigint NOT NULL DEFAULT 0 CHECK (discount_satang >= 0),
+  discount_source    text CHECK (discount_source IN ('pro_entitlement', 'voucher')),
+  voucher_entry_id   bigint REFERENCES credit_ledger (id),  -- รายการหักคูปอง ใส่ตอนชำระเงินสำเร็จ
+  seat_user_id       uuid REFERENCES users (id),  -- คนที่นั่ง · ใช้ส่วนลดของคนนี้ ไม่ใช่ของผู้จ่าย
+  line_total_satang  bigint NOT NULL CHECK (line_total_satang >= 0),
   created_at         timestamptz NOT NULL DEFAULT now(),
-  CHECK (status = 'pending_verification' OR verified_at IS NOT NULL),
-  CHECK (status <> 'rejected' OR rejection_reason IS NOT NULL)
+  CHECK (num_nonnulls(product_id, seat_pool_id) = 1),
+  CHECK ((seat_pool_id IS NULL) = (seat_user_id IS NULL)),
+  CHECK (line_total_satang = unit_price_satang * quantity - discount_satang),
+  CHECK ((discount_satang > 0) = (discount_source IS NOT NULL)),
+  CHECK (voucher_entry_id IS NULL OR discount_source = 'voucher')
 );
-COMMENT ON TABLE payments IS '[Should] การชำระเงิน · แอดมินยืนยันสลิปแล้วจึงสร้าง seat_pools (แยกจาก Entitlement)';
+CREATE INDEX order_items_order_idx ON order_items (order_id);
+CREATE TRIGGER order_items_fill_once BEFORE UPDATE OR DELETE ON order_items
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('voucher_entry_id');
+COMMENT ON TABLE order_items IS 'รายการในคำสั่งซื้อ (สำเนา ณ ตอนซื้อ) · ส่วนลดใช้แบบที่ดีที่สุดแบบเดียว ไม่ซ้อน';
 
-
--- =============================================================================
--- 7. Student — ข้อมูลนักเรียน (ผู้เยาว์) เป็นของบัญชีองค์กร (ข้อ 44, 60.2)
---    เห็นได้: บุคลากรในองค์กร, โค้ชที่ดูแล case, แอดมินที่มีสิทธิ์ (บันทึก audit ทุกครั้ง)
---    ตัวอย่างการกันข้อมูลข้ามองค์กรในระดับฐานข้อมูลอยู่ใน rls.sql
--- =============================================================================
-
-CREATE TABLE students (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id  uuid NOT NULL REFERENCES organizations (id),
-  first_name       text NOT NULL,
-  last_name        text,
-  nickname         text,
-  student_code     text,                   -- เลขประจำตัวในองค์กร (ถ้ามี)
-  -- รหัสแทนชื่อสำหรับส่ง AI · ระบบแทนชื่อด้วยรหัสก่อนส่ง แล้วแปลงกลับตอนแสดงผล
-  pseudonym_key    text NOT NULL UNIQUE
-                   DEFAULT ('S-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))),
-  source           text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'import')),
-  created_by       uuid REFERENCES users (id),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  deleted_at       timestamptz,
-  UNIQUE (id, organization_id)
+CREATE TABLE inventory_holds (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id  uuid NOT NULL REFERENCES products (id),
+  order_id    uuid NOT NULL REFERENCES orders (id),
+  quantity    integer NOT NULL CHECK (quantity > 0),
+  expires_at  timestamptz NOT NULL,              -- ตามเวลาจ่ายเงินของคำสั่งซื้อ · แนบสลิปแล้วต่อเวลาจนทีมงานตรวจเสร็จ
+  status      text NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'committed', 'released')),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX students_code_key ON students (organization_id, student_code)
-  WHERE student_code IS NOT NULL AND deleted_at IS NULL;
-COMMENT ON TABLE students IS 'ระเบียนนักเรียนขององค์กร ไม่มี account ใน Phase 1 · รายการ field สุดท้ายยัง OPEN (ข้อ 60.2)';
+CREATE INDEX inventory_holds_active_idx ON inventory_holds (product_id) WHERE status = 'held';
+COMMENT ON TABLE inventory_holds IS 'กันของไว้ตั้งแต่สร้างคำสั่งซื้อ · สร้างผ่าน hold_stock() เท่านั้น · จ่ายแล้ว = committed + รายการ sale ใน inventory_movements';
 
-CREATE TABLE student_enrollments (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id       uuid NOT NULL,
-  org_unit_id      uuid NOT NULL,
-  organization_id  uuid NOT NULL,
-  starts_on        date NOT NULL,
-  ends_on          date,
-  created_by       uuid REFERENCES users (id),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  -- นักเรียนกับห้องต้องอยู่องค์กรเดียวกัน
-  FOREIGN KEY (student_id, organization_id) REFERENCES students (id, organization_id),
-  FOREIGN KEY (org_unit_id, organization_id) REFERENCES org_units (id, organization_id),
-  CHECK (ends_on IS NULL OR ends_on >= starts_on),
-  -- ห้ามมีช่วงเวลาซ้อนกันในห้องเดียวกัน
-  EXCLUDE USING gist (student_id WITH =, org_unit_id WITH =, daterange(starts_on, ends_on, '[]') WITH &&)
+CREATE TABLE order_status_history (
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id       uuid NOT NULL REFERENCES orders (id),
+  from_status    text,
+  to_status      text NOT NULL,
+  actor_user_id  uuid REFERENCES users (id),     -- NULL = ระบบ (เช่น ระบบรับเงินยืนยัน)
+  reason         text,
+  created_at     timestamptz NOT NULL DEFAULT now()
 );
-COMMENT ON TABLE student_enrollments IS 'นักเรียนอยู่ห้อง/กลุ่มไหนช่วงไหน · ข้ามปีไม่ต้องกรอกนักเรียนใหม่ (ระบบเดิมกรอกใหม่ทุกปี)';
-
-CREATE TABLE import_jobs (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id  uuid NOT NULL REFERENCES organizations (id),
-  requested_by     uuid NOT NULL REFERENCES users (id),
-  import_type      text NOT NULL,          -- เช่น students
-  file_id          uuid REFERENCES files (id),  -- ไฟล์ต้นฉบับ ลบตาม expires_at
-  status           text NOT NULL DEFAULT 'uploaded'
-                   CHECK (status IN ('uploaded', 'previewed', 'importing', 'completed', 'failed', 'cancelled')),
-  total_rows       integer CHECK (total_rows >= 0),
-  imported_rows    integer CHECK (imported_rows >= 0),
-  error_rows       integer CHECK (error_rows >= 0),
-  row_errors       jsonb NOT NULL DEFAULT '[]',  -- [{row, column, message}] ห้ามเก็บข้อมูลนักเรียนทั้งแถว
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  finished_at      timestamptz,
-  expires_at       timestamptz NOT NULL    -- วันที่ต้องลบไฟล์ต้นฉบับ (study หัวข้อ 7.1 ข้อ 9)
-);
-COMMENT ON TABLE import_jobs IS 'งาน import ไฟล์ เช่น รายชื่อนักเรียนจาก Excel: อัปโหลด → preview → import ใน transaction';
-
-ALTER TABLE students
-  ADD COLUMN import_job_id uuid REFERENCES import_jobs (id),  -- import ครั้งไหน ใช้ไล่ตรวจหรือย้อนการ import
-  ADD CONSTRAINT students_import_source CHECK (import_job_id IS NULL OR source = 'import');
-
-
--- =============================================================================
--- 8. Tool / Case / Canvas (ข้อ 7, 12, 13, 45)
---    ช่องของ Canvas เป็นข้อมูลใน tool_fields จึงเพิ่ม Tool อื่นหรือปรับช่องได้โดยไม่แก้ schema
--- =============================================================================
-
-CREATE TABLE tools (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code         text NOT NULL UNIQUE,
-  name         text NOT NULL,
-  description  text,
-  is_active    boolean NOT NULL DEFAULT true,
-  created_at   timestamptz NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE tools IS 'เครื่องมือคิดของครู · ตอนนี้มี Unlock Hidden Potential Canvas แต่ห้าม hard-code ว่ามีตัวเดียว (ข้อ 45)';
-
-CREATE TABLE tool_versions (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tool_id       uuid NOT NULL REFERENCES tools (id),
-  version       integer NOT NULL CHECK (version > 0),
-  -- ค่าตั้งที่ยัง OPEN เช่น เกณฑ์คะแนนพร้อมทำแผน, จำนวน Canvas สูงสุดต่อการสังเคราะห์
-  settings      jsonb NOT NULL DEFAULT '{}',
-  published_at  timestamptz,
-  retired_at    timestamptz,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (tool_id, version)
-);
-COMMENT ON TABLE tool_versions IS 'Tool แต่ละ version · Canvas ที่เขียนแล้วผูกกับ version เดิมเสมอ';
-
-CREATE TABLE tool_fields (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tool_version_id  uuid NOT NULL REFERENCES tool_versions (id) ON DELETE CASCADE,
-  field_key        text NOT NULL,          -- เช่น potential, reason, signals
-  label            text NOT NULL,
-  help_text        text,
-  sort_order       integer NOT NULL,
-  is_required      boolean NOT NULL DEFAULT true,
-  is_signal_field  boolean NOT NULL DEFAULT false,  -- ช่องที่แตกเป็นสัญญาณความสำเร็จ
-  max_score        numeric(4, 2),          -- คะแนนเต็มของช่อง (ถ้ามี rubric)
-  config           jsonb NOT NULL DEFAULT '{}',     -- ค่าหน้าจอ เช่น placeholder, ความยาวสูงสุด
-  UNIQUE (tool_version_id, field_key),
-  UNIQUE (tool_version_id, sort_order),
-  UNIQUE (id, tool_version_id)
-);
-COMMENT ON TABLE tool_fields IS 'ช่องของ Tool เช่น Canvas 7 ช่อง (ข้อ 7) · ชื่อช่องปรับตาม UX ได้';
-
-CREATE TABLE cases (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id    uuid NOT NULL REFERENCES users (id),
-  organization_id  uuid REFERENCES organizations (id),  -- null = ครูอิสระ
-  title            text NOT NULL,
-  situation        text NOT NULL,          -- เกิดอะไรขึ้น
-  impact           text,                   -- ส่งผลอย่างไร
-  scope            text NOT NULL CHECK (scope IN ('individual', 'group', 'classroom', 'other')),
-  status           text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_practice', 'closed', 'archived')),
-  -- ใครในองค์กรเห็นได้: ค่าเริ่มต้นยัง OPEN (study หัวข้อ 9 ข้อ 3) จึงเริ่มที่ private ตามข้อ 31
-  visibility       text NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'organization')),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (id, organization_id),
-  CHECK (visibility = 'private' OR organization_id IS NOT NULL)
-);
-COMMENT ON TABLE cases IS 'สถานการณ์จริง/ประเด็นท้าทายที่ครูนำมาพัฒนา (Product Loop ข้อ 48)';
-
-CREATE TABLE case_targets (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id          uuid NOT NULL,
-  organization_id  uuid,
-  student_id       uuid,
-  org_unit_id      uuid,
-  label            text,                   -- คำอธิบายกลุ่มเมื่อไม่ได้บันทึกรายชื่อ ห้ามใส่ชื่อจริง
-  FOREIGN KEY (case_id) REFERENCES cases (id) ON DELETE CASCADE,
-  -- นักเรียน/ห้องต้องอยู่องค์กรเดียวกับ case
-  FOREIGN KEY (case_id, organization_id) REFERENCES cases (id, organization_id),
-  FOREIGN KEY (student_id, organization_id) REFERENCES students (id, organization_id),
-  FOREIGN KEY (org_unit_id, organization_id) REFERENCES org_units (id, organization_id),
-  CHECK (num_nonnulls(student_id, org_unit_id, label) = 1),
-  CHECK (num_nulls(student_id, org_unit_id) = 2 OR organization_id IS NOT NULL)
-);
-CREATE UNIQUE INDEX case_targets_student_key ON case_targets (case_id, student_id) WHERE student_id IS NOT NULL;
-CREATE UNIQUE INDEX case_targets_unit_key ON case_targets (case_id, org_unit_id) WHERE org_unit_id IS NOT NULL;
-COMMENT ON TABLE case_targets IS 'case นี้เกี่ยวกับนักเรียนหรือห้องไหน ผูกด้วย relation ไม่ใช่ค้นข้อความแบบระบบเดิม · ไม่บังคับต้องมีรายชื่อ';
-
-CREATE TABLE canvases (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  case_id          uuid NOT NULL REFERENCES cases (id),
-  tool_version_id  uuid NOT NULL REFERENCES tool_versions (id),
-  author_user_id   uuid NOT NULL REFERENCES users (id),
-  status           text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'ready', 'locked', 'archived')),
-  locked_at        timestamptz,
-  lock_reason      text,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  deleted_at       timestamptz,            -- ลบแบบ soft เพราะแผนและงาน AI ยังอ้าง revision อยู่
-  UNIQUE (id, tool_version_id),
-  CHECK ((status = 'locked') = (locked_at IS NOT NULL))
-);
-COMMENT ON TABLE canvases IS 'Canvas ของ case · เนื้อหาอยู่ใน canvas_revisions · ห้ามลบจริง';
-
-CREATE TABLE canvas_revisions (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  canvas_id        uuid NOT NULL,
-  tool_version_id  uuid NOT NULL,
-  revision_no      integer NOT NULL CHECK (revision_no > 0),
-  created_by       uuid NOT NULL REFERENCES users (id),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (canvas_id, revision_no),
-  UNIQUE (id, tool_version_id),
-  FOREIGN KEY (canvas_id, tool_version_id) REFERENCES canvases (id, tool_version_id)
-);
-COMMENT ON TABLE canvas_revisions IS 'แก้ Canvas 1 ครั้ง = revision ใหม่ · เห็นพัฒนาการหลังได้ feedback (ระบบเดิม 57% ถูกแก้หลังได้คะแนน)';
-
-CREATE TABLE canvas_field_values (
-  canvas_revision_id  uuid NOT NULL,
-  tool_version_id     uuid NOT NULL,
-  tool_field_id       uuid NOT NULL,
-  value_text          text NOT NULL,
-  PRIMARY KEY (canvas_revision_id, tool_field_id),
-  -- ช่องต้องเป็นของ Tool version เดียวกับ Canvas
-  FOREIGN KEY (canvas_revision_id, tool_version_id) REFERENCES canvas_revisions (id, tool_version_id) ON DELETE CASCADE,
-  FOREIGN KEY (tool_field_id, tool_version_id) REFERENCES tool_fields (id, tool_version_id)
-);
-COMMENT ON TABLE canvas_field_values IS 'คำตอบรายช่องของแต่ละ revision';
-
-CREATE TRIGGER canvas_revisions_immutable BEFORE UPDATE ON canvas_revisions
+CREATE INDEX order_status_history_order_idx ON order_status_history (order_id, created_at);
+CREATE TRIGGER order_status_history_append_only BEFORE UPDATE OR DELETE ON order_status_history
   FOR EACH ROW EXECUTE FUNCTION forbid_change();
-CREATE TRIGGER canvas_field_values_immutable BEFORE UPDATE ON canvas_field_values
-  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE order_status_history IS 'ประวัติสถานะคำสั่งซื้อ trigger บันทึกให้เอง · API ตั้ง app.actor_user_id และ app.status_reason ก่อนเปลี่ยนสถานะ';
 
-CREATE TABLE canvas_feedbacks (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  canvas_revision_id  uuid NOT NULL REFERENCES canvas_revisions (id),
-  source              text NOT NULL CHECK (source IN ('ai', 'coach', 'self')),
-  ai_job_id           uuid,                -- FK เพิ่มในส่วน AI
-  author_user_id      uuid REFERENCES users (id),
-  total_score         numeric(5, 2),
-  summary             text,
-  -- ผลจาก AI ต้องผ่านการตรวจก่อนแสดงให้ครู (ข้อ 60.10.4) · คะแนนเป็นเงื่อนไขบังคับหรือไม่ยัง OPEN
-  status              text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'discarded')),
-  published_at        timestamptz,
-  reviewed_by         uuid REFERENCES users (id),  -- คนที่ตรวจผล AI ก่อนเผยแพร่ (ถ้าทีมตัดสินให้มีคนตรวจ · OPEN)
-  created_at          timestamptz NOT NULL DEFAULT now(),
-  CHECK ((source = 'ai') = (ai_job_id IS NOT NULL)),
-  CHECK (source = 'ai' OR author_user_id IS NOT NULL),
-  CHECK ((status = 'published') = (published_at IS NOT NULL))
-);
-COMMENT ON TABLE canvas_feedbacks IS 'feedback ต่อ Canvas จาก AI, โค้ช หรือครูประเมินตัวเอง · AI เป็นผู้ช่วย ไม่ใช่ผู้ตัดสิน (ข้อ 12)';
-
-CREATE TABLE canvas_feedback_items (
-  canvas_feedback_id  uuid NOT NULL REFERENCES canvas_feedbacks (id) ON DELETE CASCADE,
-  tool_field_id       uuid NOT NULL REFERENCES tool_fields (id),
-  score               numeric(4, 2),
-  comment             text,
-  PRIMARY KEY (canvas_feedback_id, tool_field_id),
-  CHECK (score IS NOT NULL OR comment IS NOT NULL)
-);
-COMMENT ON TABLE canvas_feedback_items IS 'คะแนน/ความเห็นรายช่อง (แทน sc_score_c1–c7 ของระบบเดิม)';
-
-CREATE TABLE success_signals (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  canvas_id           uuid NOT NULL REFERENCES canvases (id),
-  source_revision_id  uuid REFERENCES canvas_revisions (id),
-  description         text NOT NULL,
-  sort_order          integer NOT NULL DEFAULT 0,
-  retired_at          timestamptz,
-  created_at          timestamptz NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE success_signals IS 'สัญญาณความสำเร็จ (ช่อง 7) แตกเป็นแถว ให้บันทึกการลงมือทำอ้างถึงได้ (ระบบเดิมค้นข้อความ)';
-
-
--- =============================================================================
--- 9. AI — งาน AI ทุกประเภทใช้โครงเดียว (ข้อ 12, 60.2, 60.10.4)
--- =============================================================================
-
-CREATE TABLE ai_jobs (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_type         text NOT NULL,          -- เช่น canvas_feedback, plan_synthesis, progress_summary
-  requested_by     uuid NOT NULL REFERENCES users (id),
-  organization_id  uuid REFERENCES organizations (id),
-  status           text NOT NULL DEFAULT 'queued'
-                   CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'expired')),
-  attempts         smallint NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-  max_attempts     smallint NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
-  idempotency_key  text UNIQUE,            -- กันกดซ้ำแล้วได้ 2 งาน
-  input_fingerprint text,                  -- hash ของ input (เช่น canvas revision ที่เรียงแล้ว) ใช้ตรวจงานซ้ำ
-  input_snapshot   jsonb NOT NULL,         -- ข้อมูลที่ส่งจริงหลัง pseudonymize แล้ว ห้ามมีชื่อจริง
-  output           jsonb,
-  error_code       text,
-  error_message    text,                   -- ข้อความที่ครูอ่านเข้าใจ
-  provider         text,                   -- AI Provider ยัง OPEN
-  model            text,
-  prompt_version   text,
-  input_tokens     integer,
-  output_tokens    integer,
-  cost_estimate    numeric(10, 4),
-  queued_at        timestamptz NOT NULL DEFAULT now(),
-  started_at       timestamptz,
-  finished_at      timestamptz,
-  expires_at       timestamptz,
-  CHECK (status IN ('queued', 'running') OR finished_at IS NOT NULL),
-  CHECK (status <> 'succeeded' OR output IS NOT NULL),
-  CHECK (status <> 'failed' OR error_code IS NOT NULL)
-);
-CREATE INDEX ai_jobs_queue_idx ON ai_jobs (queued_at) WHERE status = 'queued';
--- งานชนิดเดียวกันจาก input ชุดเดียวกันต้องไม่ค้างซ้อนกัน
-CREATE UNIQUE INDEX ai_jobs_one_open_per_input ON ai_jobs (requested_by, job_type, input_fingerprint)
-  WHERE status IN ('queued', 'running') AND input_fingerprint IS NOT NULL;
-CREATE INDEX ai_jobs_requester_idx ON ai_jobs (requested_by, queued_at DESC);
-COMMENT ON TABLE ai_jobs IS 'งาน AI เบื้องหลังที่มีสถานะให้ครูเห็น · ระบบเดิมล้มเหลว 30% จึงต้องมี retry และข้อความ error ที่ชัด';
-
-CREATE TABLE ai_job_canvas_revisions (
-  ai_job_id           uuid NOT NULL REFERENCES ai_jobs (id) ON DELETE CASCADE,
-  canvas_revision_id  uuid NOT NULL REFERENCES canvas_revisions (id),
-  PRIMARY KEY (ai_job_id, canvas_revision_id)
-);
-COMMENT ON TABLE ai_job_canvas_revisions IS 'Canvas revision ที่ใช้เป็น input ของงาน AI · ใช้ retry ได้แม้งานล้มเหลว';
-
-ALTER TABLE usage_ledger
-  ADD CONSTRAINT usage_ledger_ai_job_fk FOREIGN KEY (ai_job_id) REFERENCES ai_jobs (id);
-ALTER TABLE canvas_feedbacks
-  ADD CONSTRAINT canvas_feedbacks_ai_job_fk FOREIGN KEY (ai_job_id) REFERENCES ai_jobs (id);
-
--- หักเครดิตได้เฉพาะงาน AI ที่สำเร็จ งานที่ล้มเหลวไม่ถูกหัก (study หัวข้อ 7.1 ข้อ 3)
-CREATE FUNCTION usage_requires_succeeded_job() RETURNS trigger LANGUAGE plpgsql AS $$
+-- สถานะคำสั่งซื้อเปลี่ยนได้ตามลูกศรเท่านั้น (system-plan 6.2) และยอดเงินแก้ได้เฉพาะก่อนจ่าย
+CREATE FUNCTION orders_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NEW.reason = 'usage' AND NEW.ai_job_id IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM ai_jobs WHERE id = NEW.ai_job_id AND status = 'succeeded') THEN
-    RAISE EXCEPTION 'หักเครดิตได้เฉพาะงาน AI ที่สำเร็จ (job %)', NEW.ai_job_id USING ERRCODE = 'check_violation';
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'คำสั่งซื้อห้ามลบ ให้เปลี่ยนเป็นยกเลิกแทน' USING ERRCODE = 'insufficient_privilege';
   END IF;
+
+  IF NEW.status IS DISTINCT FROM OLD.status AND (OLD.status, NEW.status) NOT IN (
+       ('pending_payment',       'awaiting_verification'),  -- แนบสลิป
+       ('pending_payment',       'paid'),                   -- ระบบรับเงินยืนยัน
+       ('pending_payment',       'cancelled'),
+       ('pending_payment',       'expired'),
+       ('awaiting_verification', 'paid'),
+       ('awaiting_verification', 'underpaid'),
+       ('awaiting_verification', 'pending_payment'),        -- สลิปไม่ถูกต้อง ให้ส่งใหม่
+       ('awaiting_verification', 'cancelled'),
+       ('underpaid',             'awaiting_verification'),  -- โอนส่วนที่ขาดมาแล้ว
+       ('underpaid',             'cancelled'),
+       ('paid',                  'awaiting_packing'),       -- สินค้าจับต้องได้
+       ('paid',                  'completed'),              -- ที่นั่ง สมาชิก ชุดเติม
+       ('paid',                  'cancelled'),              -- ยกเลิกก่อนแพ็ก (บันทึกคืนเงินใน refunds)
+       ('awaiting_packing',      'shipped'),
+       ('awaiting_packing',      'cancelled'),
+       ('shipped',               'code_redeemed'),
+       ('shipped',               'partially_refunded'),
+       ('shipped',               'refunded'),
+       ('code_redeemed',         'partially_refunded'),
+       ('code_redeemed',         'refunded'),
+       ('completed',             'partially_refunded'),
+       ('completed',             'refunded'),
+       ('partially_refunded',    'refunded')
+     ) THEN
+    RAISE EXCEPTION 'เปลี่ยนสถานะคำสั่งซื้อจาก % เป็น % ไม่ได้', OLD.status, NEW.status
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF OLD.status NOT IN ('pending_payment', 'awaiting_verification', 'underpaid')
+     AND (NEW.subtotal_satang, NEW.discount_satang, NEW.shipping_satang, NEW.total_satang,
+          NEW.vat_satang, NEW.withholding_satang, NEW.amount_due_satang, NEW.buyer_user_id)
+         IS DISTINCT FROM
+         (OLD.subtotal_satang, OLD.discount_satang, OLD.shipping_satang, OLD.total_satang,
+          OLD.vat_satang, OLD.withholding_satang, OLD.amount_due_satang, OLD.buyer_user_id) THEN
+    RAISE EXCEPTION 'คำสั่งซื้อที่ชำระแล้วแก้ยอดเงินหรือผู้ซื้อไม่ได้' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  NEW.updated_at := now();
   RETURN NEW;
 END $$;
-CREATE TRIGGER usage_ledger_charge_check BEFORE INSERT ON usage_ledger
-  FOR EACH ROW EXECUTE FUNCTION usage_requires_succeeded_job();
+CREATE TRIGGER orders_guard BEFORE UPDATE OR DELETE ON orders
+  FOR EACH ROW EXECUTE FUNCTION orders_guard();
 
-
--- =============================================================================
--- 10. Development Plan — แผนพัฒนาศักยภาพ มี version (ข้อ 13, 14)
--- =============================================================================
-
-CREATE TABLE development_plans (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id    uuid NOT NULL REFERENCES users (id),
-  organization_id  uuid REFERENCES organizations (id),
-  title            text NOT NULL,
-  status           text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'archived')),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE development_plans IS 'แผนพัฒนา 1 เรื่อง · เนื้อหาอยู่ใน development_plan_versions · current_version_id คือ version ที่ครูเลือกใช้';
-
-CREATE TABLE development_plan_versions (
-  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  development_plan_id  uuid NOT NULL REFERENCES development_plans (id),
-  version_no           integer NOT NULL CHECK (version_no > 0),
-  source               text NOT NULL CHECK (source IN ('ai', 'teacher')),
-  ai_job_id            uuid REFERENCES ai_jobs (id),
-  based_on_version_id  uuid REFERENCES development_plan_versions (id),
-  created_by           uuid NOT NULL REFERENCES users (id),
-  submitted_at         timestamptz,        -- ส่งให้ผู้ตรวจ/โค้ช (ถ้ามีขั้นตอนนี้)
-  created_at           timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (development_plan_id, version_no),
-  UNIQUE (id, development_plan_id),
-  CHECK ((source = 'ai') = (ai_job_id IS NOT NULL))
-);
-COMMENT ON TABLE development_plan_versions IS 'ร่างจาก AI และฉบับที่ครูแก้ แยกเป็น version · ครูเป็นผู้ตัดสินใจสุดท้าย (ข้อ 12)';
-
--- version ที่ครูเลือกใช้ ต้องเป็น version ของแผนเดียวกัน
-ALTER TABLE development_plans
-  ADD COLUMN current_version_id uuid,
-  ADD CONSTRAINT development_plans_current_version_fk
-    FOREIGN KEY (current_version_id, id) REFERENCES development_plan_versions (id, development_plan_id);
-
-CREATE TABLE development_plan_sections (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  plan_version_id  uuid NOT NULL REFERENCES development_plan_versions (id) ON DELETE CASCADE,
-  section_key      text NOT NULL,          -- เช่น context, goals, methods, measures
-  title            text NOT NULL,
-  body             text NOT NULL,          -- ช่อง ____ ที่ครูต้องเติม นับจากข้อความนี้
-  is_editable      boolean NOT NULL DEFAULT true,  -- false = ข้อสังเกตจาก AI ที่ครูอ่านอย่างเดียว
-  sort_order       integer NOT NULL,
-  UNIQUE (plan_version_id, section_key),
-  UNIQUE (plan_version_id, sort_order)
-);
-
-CREATE TABLE development_plan_canvases (
-  plan_version_id     uuid NOT NULL REFERENCES development_plan_versions (id) ON DELETE CASCADE,
-  canvas_revision_id  uuid NOT NULL REFERENCES canvas_revisions (id),
-  PRIMARY KEY (plan_version_id, canvas_revision_id)
-);
-COMMENT ON TABLE development_plan_canvases IS 'Canvas Pool ที่ใช้สร้างแผน version นี้ · จำนวนสูงสุดเป็นค่าตั้ง ไม่ fix 5 ใบ (ข้อ 13)';
-
-CREATE TABLE plan_reviews (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  plan_version_id  uuid NOT NULL REFERENCES development_plan_versions (id),
-  reviewer_user_id uuid NOT NULL REFERENCES users (id),
-  outcome          text NOT NULL CHECK (outcome IN ('approved', 'changes_requested')),
-  comment          text,
-  created_at       timestamptz NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE plan_reviews IS 'ผลตรวจแผน (ไม่บังคับใช้) · จะยังมีการตรวจผ่าน/ไม่ผ่านหรือไม่ยัง OPEN (study หัวข้อ 9 ข้อ 2)';
-
-
--- =============================================================================
--- 11. Practice — แผนลงมือทำและตารางกิจกรรม (ข้อ 14, 60.10.4)
---    กิจวัตรเป็นข้อมูลใน practice_sets / practice_templates ไม่ hard-code 7 กิจวัตร (ข้อ 9, 53)
--- =============================================================================
-
-CREATE TABLE practice_sets (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id  uuid REFERENCES organizations (id),  -- null = ชุดกลางของ SkillWise
-  name             text NOT NULL,
-  description      text,
-  is_active        boolean NOT NULL DEFAULT true,
-  created_at       timestamptz NOT NULL DEFAULT now()
-);
-COMMENT ON TABLE practice_sets IS 'ชุดกิจวัตร/แนวปฏิบัติ เช่น 7 กิจวัตรเป็น 1 ชุด (ข้อ 10.1)';
-
-CREATE TABLE practice_templates (
-  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  practice_set_id          uuid NOT NULL REFERENCES practice_sets (id),
-  name                     text NOT NULL,
-  description              text,
-  default_recurrence_rule  text,           -- RRULE ตาม RFC 5545
-  sort_order               integer NOT NULL DEFAULT 0,
-  is_active                boolean NOT NULL DEFAULT true
-);
-
-CREATE TABLE action_plans (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  plan_version_id  uuid NOT NULL REFERENCES development_plan_versions (id),
-  owner_user_id    uuid NOT NULL REFERENCES users (id),
-  organization_id  uuid REFERENCES organizations (id),
-  title            text NOT NULL,
-  starts_on        date NOT NULL,
-  ends_on          date NOT NULL,          -- ระยะขั้นต่ำ (ระบบเดิม 8 สัปดาห์) เป็นค่าตั้ง
-  timezone         text NOT NULL DEFAULT 'Asia/Bangkok',
-  status           text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'completed', 'cancelled')),
-  activated_at     timestamptz,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  CHECK (ends_on > starts_on),
-  CHECK (status NOT IN ('active', 'completed') OR activated_at IS NOT NULL)
-);
-COMMENT ON TABLE action_plans IS 'แผนลงมือทำ อ้าง plan version ที่ใช้สร้าง (snapshot) แทนการล็อกถาวร เพื่อรองรับ Revision → Next Cycle';
-
-CREATE TABLE action_plan_members (
-  action_plan_id   uuid NOT NULL REFERENCES action_plans (id) ON DELETE CASCADE,
-  user_id          uuid NOT NULL REFERENCES users (id),
-  member_role      text NOT NULL CHECK (member_role IN ('owner', 'co_teacher')),
-  acknowledged_at  timestamptz,            -- ครูร่วมกดยืนยันว่าอ่านแผนแล้ว
-  added_at         timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (action_plan_id, user_id)
-);
-COMMENT ON TABLE action_plan_members IS 'ครูเจ้าของและครูร่วม (ระบบเดิมเก็บเป็น CSV)';
-
-CREATE TABLE action_items (
-  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  action_plan_id           uuid NOT NULL REFERENCES action_plans (id) ON DELETE CASCADE,
-  item_type                text NOT NULL CHECK (item_type IN ('routine', 'from_canvas', 'custom')),
-  practice_template_id     uuid REFERENCES practice_templates (id),
-  source_canvas_id         uuid REFERENCES canvases (id),
-  source_tool_field_id     uuid REFERENCES tool_fields (id),  -- ไอเดียมาจากช่องไหนของ Canvas
-  title                    text NOT NULL,
-  description              text,
-  expected_result          text,           -- คาดว่าจะเห็นอะไรในตัวเด็ก
-  recurrence_rule          text,           -- RRULE เช่น FREQ=WEEKLY;BYDAY=MO,WE · null = ทำครั้งเดียววันที่ starts_on
-  starts_on                date,           -- null = เริ่มพร้อมแผน · ใช้กับกิจกรรมที่เพิ่มกลางแผนหรือทำครั้งเดียว
-  ends_on                  date,           -- null = จบพร้อมแผน
-  time_of_day              time,
-  duration_minutes         integer CHECK (duration_minutes > 0),
-  reminder_offset_minutes  integer CHECK (reminder_offset_minutes >= 0),  -- null = ไม่เตือน
-  sort_order               integer NOT NULL DEFAULT 0,
-  created_at               timestamptz NOT NULL DEFAULT now(),
-  updated_at               timestamptz NOT NULL DEFAULT now(),
-  CHECK (item_type <> 'routine' OR practice_template_id IS NOT NULL),
-  CHECK (item_type <> 'from_canvas' OR source_canvas_id IS NOT NULL),
-  CHECK (ends_on IS NULL OR starts_on IS NULL OR ends_on >= starts_on),
-  CHECK (recurrence_rule IS NOT NULL OR starts_on IS NOT NULL)  -- ทำครั้งเดียวต้องระบุวัน
-);
-COMMENT ON TABLE action_items IS 'กิจกรรมในแผน: กิจวัตรจาก template / จากไอเดียใน Canvas / ครูคิดเอง';
-
-CREATE TABLE action_item_org_units (
-  action_item_id  uuid NOT NULL REFERENCES action_items (id) ON DELETE CASCADE,
-  org_unit_id     uuid NOT NULL REFERENCES org_units (id),
-  PRIMARY KEY (action_item_id, org_unit_id)
-);
-COMMENT ON TABLE action_item_org_units IS 'กิจกรรมนี้ทำกับห้อง/กลุ่มไหน (ระบบเดิมเก็บเป็น CSV)';
-
-CREATE TABLE action_item_assignees (
-  action_item_id  uuid NOT NULL REFERENCES action_items (id) ON DELETE CASCADE,
-  user_id         uuid NOT NULL REFERENCES users (id),
-  PRIMARY KEY (action_item_id, user_id)
-);
-COMMENT ON TABLE action_item_assignees IS 'ครูที่รับผิดชอบกิจกรรมนี้ (ระบบเดิมเก็บเป็น CSV)';
-
-CREATE TABLE practice_sessions (
-  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  action_item_id       uuid NOT NULL REFERENCES action_items (id) ON DELETE CASCADE,
-  original_planned_at  timestamptz NOT NULL,   -- เวลาตามแผนเดิม
-  planned_at           timestamptz NOT NULL,   -- เวลาปัจจุบัน (เลื่อนได้ตลอด)
-  status               text NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'done', 'postponed', 'skipped')),
-  created_at           timestamptz NOT NULL DEFAULT now(),
-  updated_at           timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (action_item_id, original_planned_at)
-);
-CREATE INDEX practice_sessions_upcoming_idx ON practice_sessions (planned_at) WHERE status = 'planned';
-COMMENT ON TABLE practice_sessions IS 'to-do รายครั้งที่สร้างจาก recurrence_rule · ใช้เตือนและผูกกับบันทึก';
-
-
--- =============================================================================
--- 12. Evidence — บันทึกการลงมือทำแบบ "ทำไปบันทึกไป" (ข้อ 15, 60.10.5)
---    เวลาบันทึกมาจากระบบ · บันทึกย้อนหลังติดป้าย · แก้ไขได้แต่เก็บประวัติทุกครั้ง
---    บันทึกย้อนหลังเป็นแนวคิด ยังไม่ได้คุยรายละเอียด (ข้อ 60.12) · ถ้าทีมไม่ให้ย้อนหลังเลย
---    ให้ API ตั้งระยะเป็น 0 วัน (happened_on = วันที่บันทึก) โดยไม่ต้องแก้ตารางนี้
--- =============================================================================
-
-CREATE TABLE practice_logs (
-  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  action_item_id       uuid NOT NULL REFERENCES action_items (id),
-  practice_session_id  uuid REFERENCES practice_sessions (id),
-  author_user_id       uuid NOT NULL REFERENCES users (id),
-  outcome              text NOT NULL CHECK (outcome IN ('done', 'postponed')),
-  happened_on          date NOT NULL,      -- วันที่ครูบอกว่าทำ
-  recorded_at          timestamptz NOT NULL DEFAULT now(),  -- เวลาจากระบบ trigger บังคับ แก้ไม่ได้
-  timezone             text NOT NULL DEFAULT 'Asia/Bangkok',
-  is_backdated         boolean GENERATED ALWAYS AS (happened_on < (recorded_at AT TIME ZONE timezone)::date) STORED,
-  note                 text,
-  channel              text NOT NULL DEFAULT 'web' CHECK (channel IN ('web', 'line')),
-  revision_no          integer NOT NULL DEFAULT 1,
-  updated_by           uuid REFERENCES users (id),
-  updated_at           timestamptz NOT NULL DEFAULT now(),
-  -- ห้ามบันทึกล่วงหน้า · จะให้ย้อนหลังได้หรือไม่และกี่วันยัง OPEN (ข้อ 60.12) จึงเป็นค่าตั้งใน API
-  CHECK (happened_on <= (recorded_at AT TIME ZONE timezone)::date)
-);
-CREATE INDEX practice_logs_item_idx ON practice_logs (action_item_id, happened_on);
--- นัดหนึ่งครั้งมีบันทึก "ทำแล้ว" ได้แถวเดียว (ระบบเดิมไม่กันบันทึกซ้ำ)
-CREATE UNIQUE INDEX practice_logs_one_done_per_session ON practice_logs (practice_session_id)
-  WHERE outcome = 'done' AND practice_session_id IS NOT NULL;
-COMMENT ON TABLE practice_logs IS 'บันทึกทำแล้ว/เลื่อน · ระบบเดิมแก้หรือลบไม่ได้ ส่วน SkillWise แก้ได้แต่เก็บประวัติ';
-
-CREATE TABLE practice_log_revisions (
-  practice_log_id  uuid NOT NULL REFERENCES practice_logs (id),
-  revision_no      integer NOT NULL,
-  outcome          text NOT NULL,
-  happened_on      date NOT NULL,
-  note             text,
-  edited_by        uuid NOT NULL REFERENCES users (id),
-  edited_at        timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (practice_log_id, revision_no)
-);
-COMMENT ON TABLE practice_log_revisions IS 'สำเนาทุกครั้งที่สร้างหรือแก้บันทึก trigger เขียนให้อัตโนมัติ';
-
--- บังคับเวลาจากระบบ: ผู้ใช้ส่ง recorded_at มาเองไม่ได้ และแก้ภายหลังไม่ได้
-CREATE FUNCTION practice_logs_system_time() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION orders_record_status() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP = 'INSERT' THEN
-    NEW.recorded_at := now();
-    NEW.revision_no := 1;
-  ELSE
-    NEW.recorded_at := OLD.recorded_at;
-    NEW.author_user_id := OLD.author_user_id;
-    IF (NEW.outcome, NEW.happened_on, NEW.note) IS DISTINCT FROM (OLD.outcome, OLD.happened_on, OLD.note) THEN
-      NEW.revision_no := OLD.revision_no + 1;
-    END IF;
-    NEW.updated_at := now();
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER practice_logs_system_time BEFORE INSERT OR UPDATE ON practice_logs
-  FOR EACH ROW EXECUTE FUNCTION practice_logs_system_time();
-
-CREATE FUNCTION practice_logs_keep_history() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF TG_OP = 'INSERT' OR NEW.revision_no <> OLD.revision_no THEN
-    INSERT INTO practice_log_revisions (practice_log_id, revision_no, outcome, happened_on, note, edited_by)
-    VALUES (NEW.id, NEW.revision_no, NEW.outcome, NEW.happened_on, NEW.note,
-            COALESCE(NEW.updated_by, NEW.author_user_id));
+  IF TG_OP = 'INSERT' OR NEW.status IS DISTINCT FROM OLD.status THEN
+    INSERT INTO order_status_history (order_id, from_status, to_status, actor_user_id, reason)
+    VALUES (NEW.id,
+            CASE WHEN TG_OP = 'UPDATE' THEN OLD.status END,
+            NEW.status,
+            nullif(current_setting('app.actor_user_id', true), '')::uuid,
+            nullif(current_setting('app.status_reason', true), ''));
   END IF;
   RETURN NULL;
 END $$;
-CREATE TRIGGER practice_logs_keep_history AFTER INSERT OR UPDATE ON practice_logs
-  FOR EACH ROW EXECUTE FUNCTION practice_logs_keep_history();
-CREATE TRIGGER practice_log_revisions_append_only BEFORE UPDATE OR DELETE ON practice_log_revisions
-  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+CREATE TRIGGER orders_record_status AFTER INSERT OR UPDATE ON orders
+  FOR EACH ROW EXECUTE FUNCTION orders_record_status();
 
--- รายการที่ผูกกับบันทึก (ครูร่วม, นักเรียน, ไฟล์แนบ, สัญญาณ) เก็บประวัติด้วยวิธีเดียวกัน:
---   เพิ่ม = แถวใหม่ (added_by, added_at) · เอาออก = ติด removed_at / removed_by
---   แก้ข้อความ = เอาแถวเดิมออกแล้วเพิ่มแถวใหม่ · trigger กันการแก้ทับ (ข้อ 60.10.5)
---   API ห้ามลบแถว แต่ฐานข้อมูลไม่บล็อก DELETE เพื่อให้ลบตามคำขอลบข้อมูลส่วนบุคคลได้
-CREATE FUNCTION link_row_remove_only() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE TABLE payments (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id             uuid NOT NULL REFERENCES orders (id),
+  provider             text NOT NULL CHECK (provider IN ('stripe', 'opn', 'bank_transfer')),
+  method               text NOT NULL CHECK (method IN ('promptpay', 'card', 'transfer')),
+  provider_payment_id  text,                     -- รหัสฝั่งผู้ให้บริการ
+  amount_satang        bigint NOT NULL CHECK (amount_satang > 0),
+  currency             text NOT NULL DEFAULT 'THB' CHECK (currency = 'THB'),
+  status               text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'failed', 'expired', 'cancelled')),
+  expires_at           timestamptz,              -- QR พร้อมเพย์อายุ 15 นาที สร้างใหม่ได้
+  slip_file_id         uuid REFERENCES files (id),
+  verified_by          uuid REFERENCES users (id),  -- ทีมงานที่ยืนยันสลิป
+  verified_at          timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  CHECK ((method = 'transfer') = (provider = 'bank_transfer')),
+  CHECK (method <> 'transfer' OR status <> 'succeeded' OR verified_by IS NOT NULL),
+  CHECK ((verified_by IS NULL) = (verified_at IS NULL))
+);
+CREATE UNIQUE INDEX payments_provider_key ON payments (provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL;
+CREATE INDEX payments_order_idx ON payments (order_id);
+COMMENT ON TABLE payments IS 'การจ่ายแยกจากคำสั่งซื้อ 1 คำสั่งซื้อจ่ายได้หลายครั้ง เช่น QR หมดอายุแล้วสร้างใหม่ หรือโอนส่วนที่ขาด';
+
+-- ยอดและผู้ให้บริการแก้ไม่ได้ · สถานะเดินจาก pending ไปสถานะจบได้ครั้งเดียว
+CREATE FUNCTION payments_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF OLD.removed_at IS NOT NULL
-     OR NEW.removed_at IS NULL
-     OR (to_jsonb(NEW) - 'removed_at' - 'removed_by') IS DISTINCT FROM (to_jsonb(OLD) - 'removed_at' - 'removed_by') THEN
-    RAISE EXCEPTION 'ตาราง % แก้ได้แค่การเอาออก (ตั้ง removed_at) ถ้าจะแก้ให้เอาออกแล้วเพิ่มแถวใหม่', TG_TABLE_NAME
-      USING ERRCODE = 'insufficient_privilege';
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'รายการจ่ายเงินห้ามลบ' USING ERRCODE = 'insufficient_privilege';
   END IF;
+  IF (NEW.order_id, NEW.provider, NEW.method, NEW.amount_satang, NEW.currency)
+     IS DISTINCT FROM (OLD.order_id, OLD.provider, OLD.method, OLD.amount_satang, OLD.currency) THEN
+    RAISE EXCEPTION 'รายการจ่ายเงินแก้ยอดหรือช่องทางไม่ได้' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status AND OLD.status <> 'pending' THEN
+    RAISE EXCEPTION 'รายการจ่ายเงินที่จบแล้ว (%) เปลี่ยนสถานะไม่ได้', OLD.status USING ERRCODE = 'check_violation';
+  END IF;
+  NEW.updated_at := now();
   RETURN NEW;
 END $$;
+CREATE TRIGGER payments_guard BEFORE UPDATE OR DELETE ON payments
+  FOR EACH ROW EXECUTE FUNCTION payments_guard();
 
-CREATE TABLE practice_log_participants (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  practice_log_id  uuid NOT NULL REFERENCES practice_logs (id) ON DELETE CASCADE,
-  user_id          uuid NOT NULL REFERENCES users (id),
-  added_by         uuid NOT NULL REFERENCES users (id),
-  added_at         timestamptz NOT NULL DEFAULT now(),
-  removed_by       uuid REFERENCES users (id),
-  removed_at       timestamptz,
-  CHECK ((removed_at IS NULL) = (removed_by IS NULL))
+CREATE TABLE payment_events (
+  id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  provider           text NOT NULL CHECK (provider IN ('stripe', 'opn')),
+  provider_event_id  text NOT NULL,
+  event_type         text NOT NULL,
+  payload            jsonb NOT NULL,             -- ข้อมูลดิบ เก็บหลังตรวจลายเซ็นผ่านแล้วเท่านั้น
+  received_at        timestamptz NOT NULL DEFAULT now(),
+  processed_at       timestamptz,
+  UNIQUE (provider, provider_event_id)
 );
-CREATE UNIQUE INDEX practice_log_participants_active_key ON practice_log_participants (practice_log_id, user_id)
-  WHERE removed_at IS NULL;
-COMMENT ON TABLE practice_log_participants IS 'ครูคนอื่นที่ร่วมทำในครั้งนี้ นับเป็นหลักฐานของครูทุกคน (ระบบเดิมเก็บเป็น CSV)';
+CREATE INDEX payment_events_pending_idx ON payment_events (received_at) WHERE processed_at IS NULL;
+CREATE TRIGGER payment_events_fill_once BEFORE UPDATE OR DELETE ON payment_events
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('processed_at');
+COMMENT ON TABLE payment_events IS 'ข้อความแจ้งจากระบบรับเงิน · รหัสเหตุการณ์ห้ามซ้ำ จึงรับข้อความซ้ำได้โดยผลไม่ซ้ำ (system-plan 6.3)';
 
-CREATE TABLE practice_log_students (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  practice_log_id  uuid NOT NULL REFERENCES practice_logs (id) ON DELETE CASCADE,
-  student_id       uuid NOT NULL REFERENCES students (id),
-  observation      text,
-  added_by         uuid NOT NULL REFERENCES users (id),
-  added_at         timestamptz NOT NULL DEFAULT now(),
-  removed_by       uuid REFERENCES users (id),
-  removed_at       timestamptz,
-  CHECK ((removed_at IS NULL) = (removed_by IS NULL))
+CREATE TABLE refunds (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_id     uuid NOT NULL REFERENCES payments (id),
+  amount_satang  bigint NOT NULL CHECK (amount_satang > 0),
+  method         text NOT NULL CHECK (method IN ('gateway', 'manual_transfer')),  -- พร้อมเพย์บางเจ้าต้องโอนคืนเอง
+  reason         text NOT NULL,
+  status         text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'approved', 'completed', 'rejected')),
+  requested_by   uuid NOT NULL REFERENCES users (id),
+  approved_by    uuid REFERENCES users (id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  completed_at   timestamptz,
+  CHECK (status NOT IN ('approved', 'completed') OR approved_by IS NOT NULL),
+  CHECK ((status = 'completed') = (completed_at IS NOT NULL))
 );
-CREATE UNIQUE INDEX practice_log_students_active_key ON practice_log_students (practice_log_id, student_id)
-  WHERE removed_at IS NULL;
-COMMENT ON TABLE practice_log_students IS 'นักเรียนที่ครูสังเกตเห็นการเปลี่ยนแปลงในครั้งนี้ ใช้สร้าง timeline รายเด็ก';
+CREATE INDEX refunds_payment_idx ON refunds (payment_id);
+COMMENT ON TABLE refunds IS 'การคืนเงิน เต็มหรือบางส่วน · คืนรวมเกินยอดที่จ่ายไม่ได้';
 
-CREATE TABLE practice_log_attachments (
+-- คืนเงินรวมทุกรายการ (ที่ไม่ถูกปฏิเสธ) ต้องไม่เกินยอดที่จ่ายสำเร็จ
+CREATE FUNCTION refunds_within_payment() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  paid      bigint;
+  refunded  bigint;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'รายการคืนเงินห้ามลบ' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  SELECT amount_satang INTO paid FROM payments
+   WHERE id = NEW.payment_id AND status = 'succeeded' FOR UPDATE;
+  IF paid IS NULL THEN
+    RAISE EXCEPTION 'คืนเงินได้เฉพาะรายการจ่ายที่สำเร็จแล้ว' USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT coalesce(sum(amount_satang), 0) INTO refunded FROM refunds
+   WHERE payment_id = NEW.payment_id AND status <> 'rejected' AND id <> NEW.id;
+  IF NEW.status <> 'rejected' AND refunded + NEW.amount_satang > paid THEN
+    RAISE EXCEPTION 'คืนเงินรวม % สตางค์ เกินยอดที่จ่าย % สตางค์', refunded + NEW.amount_satang, paid
+      USING ERRCODE = 'check_violation';
+  END IF;
+  NEW.updated_at := now();
+  RETURN NEW;
+END $$;
+CREATE TRIGGER refunds_within_payment BEFORE INSERT OR UPDATE OR DELETE ON refunds
+  FOR EACH ROW EXECUTE FUNCTION refunds_within_payment();
+
+CREATE TABLE shipments (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  practice_log_id  uuid NOT NULL REFERENCES practice_logs (id) ON DELETE CASCADE,
-  kind             text NOT NULL CHECK (kind IN ('image', 'video', 'file', 'link')),  -- ชนิดสุดท้ายยัง OPEN (ข้อ 15)
-  file_id          uuid REFERENCES files (id),
-  url              text,
-  caption          text,
-  sort_order       integer NOT NULL DEFAULT 0,
-  added_by         uuid NOT NULL REFERENCES users (id),
-  added_at         timestamptz NOT NULL DEFAULT now(),
-  removed_by       uuid REFERENCES users (id),
-  removed_at       timestamptz,
-  CHECK (CASE WHEN kind = 'link' THEN url IS NOT NULL AND file_id IS NULL
-              ELSE file_id IS NOT NULL AND url IS NULL END),
-  CHECK ((removed_at IS NULL) = (removed_by IS NULL))
-);
-COMMENT ON TABLE practice_log_attachments IS 'หลักฐานแนบ · จำนวนรูปสูงสุด (ระบบเดิม 3) เป็นค่าตั้งใน API';
-
-CREATE TABLE practice_log_signals (
-  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  practice_log_id    uuid NOT NULL REFERENCES practice_logs (id) ON DELETE CASCADE,
-  success_signal_id  uuid NOT NULL REFERENCES success_signals (id),
-  note               text,
-  added_by           uuid NOT NULL REFERENCES users (id),
-  added_at           timestamptz NOT NULL DEFAULT now(),
-  removed_by         uuid REFERENCES users (id),
-  removed_at         timestamptz,
-  CHECK ((removed_at IS NULL) = (removed_by IS NULL))
-);
-CREATE UNIQUE INDEX practice_log_signals_active_key ON practice_log_signals (practice_log_id, success_signal_id)
-  WHERE removed_at IS NULL;
-COMMENT ON TABLE practice_log_signals IS 'สัญญาณความสำเร็จที่เห็นในครั้งนี้';
-
-CREATE TRIGGER practice_log_participants_remove_only BEFORE UPDATE ON practice_log_participants
-  FOR EACH ROW EXECUTE FUNCTION link_row_remove_only();
-CREATE TRIGGER practice_log_students_remove_only BEFORE UPDATE ON practice_log_students
-  FOR EACH ROW EXECUTE FUNCTION link_row_remove_only();
-CREATE TRIGGER practice_log_attachments_remove_only BEFORE UPDATE ON practice_log_attachments
-  FOR EACH ROW EXECUTE FUNCTION link_row_remove_only();
-CREATE TRIGGER practice_log_signals_remove_only BEFORE UPDATE ON practice_log_signals
-  FOR EACH ROW EXECUTE FUNCTION link_row_remove_only();
-
-
--- =============================================================================
--- 13. Reflection & Coaching — เป็นส่วนตัวโดยค่าเริ่มต้น (ข้อ 16, 31, 60.3)
---    ผู้บริหารไม่เห็น เว้นแต่ครูแชร์เองรายชิ้นผ่าน share_grants
--- =============================================================================
-
-CREATE TABLE reflections (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  author_user_id   uuid NOT NULL REFERENCES users (id),
-  case_id          uuid REFERENCES cases (id),
-  action_plan_id   uuid REFERENCES action_plans (id),
-  practice_log_id  uuid REFERENCES practice_logs (id),
-  body             text NOT NULL,
+  order_id         uuid NOT NULL REFERENCES orders (id),
+  carrier          text NOT NULL,
+  tracking_number  text NOT NULL,
+  shipped_at       timestamptz NOT NULL DEFAULT now(),
+  created_by       uuid NOT NULL REFERENCES users (id),
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
-COMMENT ON TABLE reflections IS 'การสะท้อนคิดของครู ต่อ case / รอบ / ครั้งที่ทำ · เห็นได้แค่เจ้าของ โค้ชที่ดูแล และคนที่ครูแชร์ให้';
+CREATE INDEX shipments_order_idx ON shipments (order_id);
+COMMENT ON TABLE shipments IS 'การจัดส่งและเลขพัสดุ (A2)';
 
-CREATE TABLE coach_assignments (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  coach_user_id    uuid NOT NULL REFERENCES users (id),
-  teacher_user_id  uuid NOT NULL REFERENCES users (id),
-  organization_id  uuid REFERENCES organizations (id),
-  case_id          uuid REFERENCES cases (id),  -- null = ดูแลครูทั้งคน · มีค่า = เฉพาะ case (logic ยัง OPEN)
-  starts_on        date NOT NULL,
-  ends_on          date,
-  assigned_by      uuid REFERENCES users (id),
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  CHECK (coach_user_id <> teacher_user_id),
-  CHECK (ends_on IS NULL OR ends_on >= starts_on)
-);
-CREATE INDEX coach_assignments_coach_idx ON coach_assignments (coach_user_id) WHERE ends_on IS NULL;
-COMMENT ON TABLE coach_assignments IS 'โค้ชดูแลครูหรือ case ไหน · สัดส่วนครูต่อโค้ชและวิธีจับคู่ยัง OPEN (ข้อ 50)';
-
-CREATE TABLE coach_feedbacks (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  coach_assignment_id uuid REFERENCES coach_assignments (id),
-  teacher_user_id     uuid NOT NULL REFERENCES users (id),  -- เจ้าของพื้นที่พัฒนา
-  author_user_id      uuid NOT NULL REFERENCES users (id),  -- โค้ช หรือครูที่ตอบกลับ
-  parent_id           uuid REFERENCES coach_feedbacks (id),
-  kind                text NOT NULL CHECK (kind IN ('question', 'comment', 'recommendation', 'reflection_prompt', 'next_practice', 'reply')),
-  case_id             uuid REFERENCES cases (id),
-  canvas_revision_id  uuid REFERENCES canvas_revisions (id),
-  action_plan_id      uuid REFERENCES action_plans (id),
-  practice_log_id     uuid REFERENCES practice_logs (id),
-  reflection_id       uuid REFERENCES reflections (id),
-  body                text NOT NULL,
-  created_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at          timestamptz NOT NULL DEFAULT now(),
-  CHECK ((kind = 'reply') = (parent_id IS NOT NULL))
-);
-CREATE INDEX coach_feedbacks_teacher_idx ON coach_feedbacks (teacher_user_id, created_at DESC);
-COMMENT ON TABLE coach_feedbacks IS 'Coach Feedback เพื่อการพัฒนา ไม่ใช่การประเมินผลงาน (ข้อ 16, 54) · ห้ามเปิดให้ผู้บริหารโดยค่าเริ่มต้น';
-
-CREATE TABLE share_grants (
-  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id      uuid NOT NULL REFERENCES users (id),
-  organization_id    uuid NOT NULL REFERENCES organizations (id),
-  audience           text NOT NULL CHECK (audience IN ('organization_managers', 'organization_members')),
-  reflection_id      uuid REFERENCES reflections (id),
-  coach_feedback_id  uuid REFERENCES coach_feedbacks (id),
-  practice_log_id    uuid REFERENCES practice_logs (id),
-  canvas_id          uuid REFERENCES canvases (id),
-  granted_at         timestamptz NOT NULL DEFAULT now(),
-  revoked_at         timestamptz,
-  CHECK (num_nonnulls(reflection_id, coach_feedback_id, practice_log_id, canvas_id) = 1)
-);
-COMMENT ON TABLE share_grants IS 'ครูเลือกแชร์รายชิ้นให้คนในองค์กรเห็น (opt-in) · ขอบเขตและการยกเลิกการแชร์ยัง OPEN (ข้อ 60.3)';
-
-
--- =============================================================================
--- 14. [Should] Timeline รายเด็ก, เอกสาร PDF, การแจ้งเตือน และเนื้อหาหน้าเว็บ
--- =============================================================================
-
-CREATE TABLE student_progress_summaries (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_id      uuid NOT NULL REFERENCES students (id),
-  case_id         uuid REFERENCES cases (id),
-  author_user_id  uuid NOT NULL REFERENCES users (id),
-  period_start    date NOT NULL,
-  period_end      date NOT NULL,
-  before_text     text,
-  after_text      text,
-  ai_job_id       uuid REFERENCES ai_jobs (id),  -- AI ช่วยร่างได้ ครูแก้ได้ทั้งหมด
-  status          text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'final')),
+CREATE TABLE shipment_codes (
+  shipment_id     uuid NOT NULL REFERENCES shipments (id),
+  redeem_code_id  uuid NOT NULL UNIQUE REFERENCES redeem_codes (id),  -- รหัส 1 รหัสอยู่ได้กล่องเดียว
+  added_by        uuid NOT NULL REFERENCES users (id),
   created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now(),
-  CHECK (period_end >= period_start)
+  PRIMARY KEY (shipment_id, redeem_code_id)
 );
-COMMENT ON TABLE student_progress_summaries IS '[Should] สรุปก่อน/หลังรายเด็ก · ตัว timeline คือ query จาก practice_log_students';
+CREATE TRIGGER shipment_codes_append_only BEFORE UPDATE OR DELETE ON shipment_codes
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE shipment_codes IS 'รหัสในกล่องที่ทีมงานสแกนใส่ไปกับคำสั่งซื้อ · ใช้นับ "ผู้ซื้อที่เปิดใช้จริง" (view order_code_redemptions)';
 
-CREATE TABLE generated_documents (
+CREATE TABLE reconciliation_items (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_user_id    uuid NOT NULL REFERENCES users (id),
-  document_type    text NOT NULL,          -- เช่น development_plan_pdf
-  plan_version_id  uuid REFERENCES development_plan_versions (id),
-  file_id          uuid NOT NULL REFERENCES files (id),
-  template_version text,
-  created_at       timestamptz NOT NULL DEFAULT now()
+  statement_date   date NOT NULL,
+  provider         text NOT NULL CHECK (provider IN ('stripe', 'opn', 'bank_transfer')),
+  provider_txn_id  text NOT NULL,
+  amount_satang    bigint NOT NULL,
+  payment_id       uuid REFERENCES payments (id),
+  status           text NOT NULL CHECK (status IN ('matched', 'mismatch', 'resolved')),
+  note             text,
+  resolved_by      uuid REFERENCES users (id),
+  resolved_at      timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_txn_id),
+  CHECK ((status = 'resolved') = (resolved_at IS NOT NULL)),
+  CHECK (status <> 'resolved' OR (resolved_by IS NOT NULL AND note IS NOT NULL))
 );
-COMMENT ON TABLE generated_documents IS '[Should] เอกสารที่ระบบสร้าง เช่น แผนแบบราชการ PDF (ข้อ 60.10.5)';
+COMMENT ON TABLE reconciliation_items IS 'งานตรวจยอดทุกวัน เทียบรายการผู้ให้บริการกับคำสั่งซื้อ · ไม่ตรงขึ้นกล่องงานฝ่ายบัญชี';
+
+CREATE TABLE seat_bookings (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  seat_pool_id         uuid NOT NULL REFERENCES seat_pools (id),
+  user_id              uuid NOT NULL REFERENCES users (id),  -- คนที่นั่ง
+  booked_by            uuid NOT NULL REFERENCES users (id),  -- คนจอง/คนจ่าย (ซื้อให้คนอื่นได้)
+  status               text NOT NULL CHECK (status IN (
+                         'pending_payment', 'booked', 'awaiting_prerequisite', 'confirmed', 'attended',
+                         'no_show', 'waitlisted', 'lottery_pending', 'lottery_not_selected',
+                         'forfeited', 'cancelled')),
+  order_id             uuid REFERENCES orders (id),
+  hold_expires_at      timestamptz,              -- ที่นั่งจ่ายเงิน: กันที่ไว้ถึงเมื่อไร
+  waitlist_position    integer CHECK (waitlist_position > 0),
+  priority_next_round  boolean NOT NULL DEFAULT false,  -- จับรางวัลไม่ได้รับเลือก ได้จองก่อนรอบหน้า
+  cancel_reason        text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  CHECK ((status = 'waitlisted') = (waitlist_position IS NOT NULL)),
+  CHECK ((status = 'pending_payment') = (hold_expires_at IS NOT NULL)),
+  CHECK (status <> 'cancelled' OR cancel_reason IS NOT NULL)
+);
+CREATE UNIQUE INDEX seat_bookings_one_per_pool ON seat_bookings (seat_pool_id, user_id)
+  WHERE status NOT IN ('cancelled', 'forfeited', 'lottery_not_selected');
+COMMENT ON TABLE seat_bookings IS 'การจองที่นั่ง สถานะตาม O5 · no_show = ไม่มาโดยไม่แจ้ง (งดสิทธิ์ที่นั่งฟรีรอบถัดไป 1 รอบ) · แจ้งล่วงหน้าให้ใช้ cancelled';
+
+-- จำนวนที่นั่งที่ใช้อยู่ห้ามเกิน capacity ของกอง (ล็อกแถวกองที่นั่งกันการจองพร้อมกัน)
+CREATE FUNCTION seat_bookings_capacity() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  seat_limit  integer;
+  taken       integer;
+BEGIN
+  IF NEW.status NOT IN ('pending_payment', 'booked', 'awaiting_prerequisite', 'confirmed', 'attended', 'no_show')
+     OR (TG_OP = 'UPDATE' AND OLD.status IN ('pending_payment', 'booked', 'awaiting_prerequisite', 'confirmed', 'attended', 'no_show')) THEN
+    NEW.updated_at := now();
+    RETURN NEW;
+  END IF;
+  SELECT capacity INTO seat_limit FROM seat_pools WHERE id = NEW.seat_pool_id FOR UPDATE;
+  SELECT count(*) INTO taken FROM seat_bookings
+   WHERE seat_pool_id = NEW.seat_pool_id AND id <> NEW.id
+     AND (status IN ('booked', 'awaiting_prerequisite', 'confirmed', 'attended', 'no_show')
+          OR (status = 'pending_payment' AND hold_expires_at > now()));
+  IF taken >= seat_limit THEN
+    RAISE EXCEPTION 'ที่นั่งในกองนี้เต็มแล้ว (% ที่) ให้เข้าคิวสำรองแทน', seat_limit USING ERRCODE = 'check_violation';
+  END IF;
+  NEW.updated_at := now();
+  RETURN NEW;
+END $$;
+CREATE TRIGGER seat_bookings_capacity BEFORE INSERT OR UPDATE ON seat_bookings
+  FOR EACH ROW EXECUTE FUNCTION seat_bookings_capacity();
+
+
+-- =============================================================================
+-- 6. เอกสารการเงิน (system-plan 6.6)
+-- =============================================================================
+
+CREATE TABLE document_sequences (
+  doc_type     text NOT NULL CHECK (doc_type IN ('quotation', 'invoice', 'receipt', 'tax_invoice', 'credit_note')),
+  year         integer NOT NULL,                 -- ปี พ.ศ. ของเลขที่เอกสาร
+  last_number  integer NOT NULL CHECK (last_number > 0),
+  PRIMARY KEY (doc_type, year)
+);
+COMMENT ON TABLE document_sequences IS 'เลขที่เอกสารล่าสุดแยกตามประเภทและปี · ออกเลขผ่าน next_document_number() ในธุรกรรมเดียวกับการออกเอกสาร จึงไม่ข้ามและไม่ซ้ำ';
+
+CREATE TABLE financial_documents (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  doc_type               text NOT NULL CHECK (doc_type IN ('quotation', 'invoice', 'receipt', 'tax_invoice', 'credit_note')),
+  seq_year               integer NOT NULL,
+  seq_number             integer NOT NULL CHECK (seq_number > 0),
+  doc_number             text NOT NULL UNIQUE,   -- เลขที่ที่พิมพ์บนเอกสาร API จัดรูปแบบจาก doc_type + ปี + ลำดับ
+  order_id               uuid REFERENCES orders (id),
+  refers_to_document_id  uuid REFERENCES financial_documents (id),  -- ใบแจ้งหนี้อ้างใบเสนอราคา · ใบลดหนี้อ้างใบกำกับเดิม
+  requested_by           uuid REFERENCES users (id),  -- ใบเสนอราคาที่ครูหรือโรงเรียนกดขอ (F10)
+  buyer_snapshot         jsonb NOT NULL,         -- ชื่อ ที่อยู่ เลขผู้เสียภาษี สาขา ณ วันที่ออก
+  items_snapshot         jsonb NOT NULL,
+  subtotal_satang        bigint NOT NULL CHECK (subtotal_satang >= 0),
+  discount_satang        bigint NOT NULL DEFAULT 0 CHECK (discount_satang >= 0),
+  vat_satang             bigint NOT NULL DEFAULT 0 CHECK (vat_satang >= 0),
+  total_satang           bigint NOT NULL CHECK (total_satang >= 0),
+  amount_in_words        text NOT NULL,          -- เช่น ห้าร้อยบาทถ้วน
+  valid_until            timestamptz,            -- ใบเสนอราคา: ยืนราคาถึง
+  pdf_file_id            uuid REFERENCES files (id),
+  issued_by              uuid REFERENCES users (id),  -- NULL = ระบบออกเอง เช่น ใบเสร็จหลังจ่ายผ่านระบบรับเงิน
+  issued_at              timestamptz NOT NULL DEFAULT now(),
+  voided_at              timestamptz,
+  voided_by              uuid REFERENCES users (id),
+  void_reason            text,
+  UNIQUE (doc_type, seq_year, seq_number),
+  CHECK ((doc_type = 'quotation') = (valid_until IS NOT NULL)),
+  CHECK (doc_type IN ('quotation') OR order_id IS NOT NULL),
+  CHECK (doc_type <> 'credit_note' OR refers_to_document_id IS NOT NULL),
+  CHECK ((voided_at IS NULL) = (void_reason IS NULL)),
+  CHECK ((voided_at IS NULL) = (voided_by IS NULL))
+);
+CREATE INDEX financial_documents_order_idx ON financial_documents (order_id);
+CREATE TRIGGER financial_documents_fill_once BEFORE UPDATE OR DELETE ON financial_documents
+  FOR EACH ROW EXECUTE FUNCTION allow_fill_once('pdf_file_id', 'voided_at', 'voided_by', 'void_reason');
+COMMENT ON TABLE financial_documents IS 'เอกสารที่ออกแล้วห้ามแก้ ต้องออกใบใหม่ · ยกเลิก = ทำเครื่องหมายพร้อมเหตุผล · ใบกำกับภาษีออกได้เฉพาะเมื่อบริษัทจด VAT (ตรวจที่ API)';
+
+ALTER TABLE orders ADD FOREIGN KEY (quotation_id) REFERENCES financial_documents (id);
+
+CREATE TABLE quotation_followups (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  quotation_id  uuid NOT NULL REFERENCES financial_documents (id),
+  called_by     uuid NOT NULL REFERENCES users (id),
+  outcome       text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX quotation_followups_quotation_idx ON quotation_followups (quotation_id, created_at DESC);
+CREATE TRIGGER quotation_followups_append_only BEFORE UPDATE OR DELETE ON quotation_followups
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE quotation_followups IS 'บันทึกการโทรตามใบเสนอราคา (A3)';
+
+CREATE TABLE withholding_records (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id               uuid NOT NULL REFERENCES orders (id),
+  financial_document_id  uuid REFERENCES financial_documents (id),
+  amount_satang          bigint NOT NULL CHECK (amount_satang > 0),
+  certificate_file_id    uuid REFERENCES files (id),  -- หนังสือรับรองการหักภาษี ณ ที่จ่าย
+  recorded_by            uuid NOT NULL REFERENCES users (id),
+  created_at             timestamptz NOT NULL DEFAULT now()
+);
+CREATE TRIGGER withholding_records_append_only BEFORE UPDATE OR DELETE ON withholding_records
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE withholding_records IS 'หลักฐานภาษีหัก ณ ที่จ่ายที่ได้รับจริง · ยอดที่ตกลงหักไว้ล่วงหน้าอยู่ที่ orders.withholding_satang · อัตราให้ผู้ทำบัญชียืนยัน';
+
+
+-- =============================================================================
+-- 7. แจ้งเตือนและบันทึก
+-- =============================================================================
 
 CREATE TABLE notification_templates (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code        text NOT NULL,               -- เช่น practice_reminder
-  channel     text NOT NULL CHECK (channel IN ('email', 'line', 'in_app')),
-  version     integer NOT NULL CHECK (version > 0),
-  subject     text,
+  event_code  text NOT NULL,                     -- เช่น order.confirmed, shipment.tracking
+  channel     text NOT NULL CHECK (channel IN ('line', 'email')),
   body        text NOT NULL,
-  is_active   boolean NOT NULL DEFAULT false,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (code, channel, version)
+  is_enabled  boolean NOT NULL DEFAULT true,
+  is_required boolean NOT NULL DEFAULT false,    -- ปิดไม่ได้ เช่น ยืนยันคำสั่งซื้อ เลขพัสดุ
+  updated_by  uuid REFERENCES users (id),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (event_code, channel),
+  CHECK (is_enabled OR NOT is_required)
 );
-CREATE UNIQUE INDEX notification_templates_one_active ON notification_templates (code, channel) WHERE is_active;
-COMMENT ON TABLE notification_templates IS '[Should] แม่แบบข้อความรายช่องทาง มี version';
+COMMENT ON TABLE notification_templates IS 'แม่แบบข้อความ ทีมงานแก้คำได้ (A11, O7)';
 
-CREATE TABLE notification_jobs (
-  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id              uuid REFERENCES users (id),
-  recipient_email      citext,             -- ผู้รับที่ยังไม่มีบัญชี เช่น อีเมลเชิญเข้าองค์กร
-  invitation_id        uuid REFERENCES invitations (id),
-  template_id          uuid NOT NULL REFERENCES notification_templates (id),
-  channel              text NOT NULL CHECK (channel IN ('email', 'line', 'in_app')),
-  payload              jsonb NOT NULL DEFAULT '{}',
-  dedupe_key           text NOT NULL UNIQUE,  -- กันส่งซ้ำ เช่น session:<id>:reminder
-  practice_session_id  uuid REFERENCES practice_sessions (id),
-  target_url           text,               -- ปลายทางของลิงก์ในข้อความ
-  click_token_hash     bytea UNIQUE,       -- hash ของ token ลิงก์นับคลิก redirect ไป target_url เท่านั้น
-  scheduled_for        timestamptz NOT NULL,
-  status               text NOT NULL DEFAULT 'scheduled'
-                       CHECK (status IN ('scheduled', 'sending', 'sent', 'failed', 'cancelled')),
-  attempts             smallint NOT NULL DEFAULT 0,
-  sent_at              timestamptz,
-  read_at              timestamptz,        -- ใช้กับ in_app
-  error_message        text,
-  created_at           timestamptz NOT NULL DEFAULT now(),
-  CHECK (status <> 'sent' OR sent_at IS NOT NULL),
-  CHECK (num_nonnulls(user_id, recipient_email) = 1),
-  CHECK (recipient_email IS NULL OR channel = 'email')
+CREATE TABLE notifications (
+  id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  recipient_user_id  uuid NOT NULL REFERENCES users (id),
+  event_code         text NOT NULL,
+  channel            text NOT NULL CHECK (channel IN ('line', 'email')),
+  counts_line_quota  boolean NOT NULL,           -- push นับโควตา LINE · ข้อความตอบแชตไม่นับ
+  status             text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sent', 'failed', 'skipped')),
+  scheduled_for      timestamptz NOT NULL DEFAULT now(),
+  sent_at            timestamptz,
+  error              text,
+  ref_type           text,                       -- เช่น order, seat_booking
+  ref_id             text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  CHECK (channel = 'line' OR NOT counts_line_quota),
+  CHECK ((status = 'sent') = (sent_at IS NOT NULL))
 );
-CREATE INDEX notification_jobs_due_idx ON notification_jobs (scheduled_for) WHERE status = 'scheduled';
-COMMENT ON TABLE notification_jobs IS '[Should] คิวแจ้งเตือน เช่น เตือนตามแผนลงมือทำผ่าน LINE (ข้อ 60.10.6) · ระบบเดิมเก็บค่าเตือนแต่ไม่เคยส่ง';
-
-CREATE TABLE notification_events (
-  id                   bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  notification_job_id  uuid NOT NULL REFERENCES notification_jobs (id) ON DELETE CASCADE,
-  event                text NOT NULL CHECK (event IN ('sent', 'delivered', 'opened', 'clicked', 'failed')),
-  occurred_at          timestamptz NOT NULL DEFAULT now(),
-  metadata             jsonb NOT NULL DEFAULT '{}'
-);
-CREATE INDEX notification_events_job_idx ON notification_events (notification_job_id);
-COMMENT ON TABLE notification_events IS '[Should] ผลการส่ง เปิด และคลิก';
-
-CREATE TABLE contents (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  content_type   text NOT NULL,            -- เช่น news, page, faq
-  slug           text NOT NULL UNIQUE,
-  title          text NOT NULL,
-  summary        text,
-  body           text NOT NULL,
-  cover_file_id  uuid REFERENCES files (id),
-  status         text NOT NULL DEFAULT 'draft'
-                 CHECK (status IN ('draft', 'in_review', 'approved', 'published', 'archived')),
-  publish_at     timestamptz,
-  approved_by    uuid REFERENCES users (id),
-  approved_at    timestamptz,
-  created_by     uuid NOT NULL REFERENCES users (id),
-  created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz NOT NULL DEFAULT now(),
-  -- ไม่มีอะไรขึ้นหน้าสาธารณะได้โดยไม่ผ่านการอนุมัติ
-  CHECK (status NOT IN ('approved', 'published') OR (approved_by IS NOT NULL AND approved_at IS NOT NULL))
-);
-COMMENT ON TABLE contents IS '[Should] เนื้อหาหน้าเว็บสาธารณะ (Free Layer ข้อ 27)';
-
-
--- =============================================================================
--- 15. Audit — บันทึกการเปิดดูข้อมูลอ่อนไหวและการกระทำของแอดมิน (ข้อ 60.7)
--- =============================================================================
+CREATE INDEX notifications_due_idx ON notifications (scheduled_for) WHERE status = 'queued';
+CREATE INDEX notifications_quota_idx ON notifications (sent_at) WHERE counts_line_quota AND status = 'sent';
+COMMENT ON TABLE notifications IS 'คิวและประวัติการส่งข้อความ · ยอดใช้โควตา LINE อ่านจาก view line_quota_usage';
 
 CREATE TABLE audit_logs (
-  id                    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  occurred_at           timestamptz NOT NULL DEFAULT now(),
-  actor_user_id         uuid REFERENCES users (id),
-  impersonator_user_id  uuid REFERENCES users (id),  -- มีค่าเมื่อทำผ่าน login-as
-  actor_type            text NOT NULL CHECK (actor_type IN ('user', 'admin', 'coach', 'system')),
-  action                text NOT NULL,      -- เช่น student.view, reflection.view, role.grant
-  permission_code       text REFERENCES permissions (code),
-  resource_type         text NOT NULL,
-  resource_id           text,
-  organization_id       uuid REFERENCES organizations (id),
-  ip                    inet,
-  user_agent            text,
-  metadata              jsonb NOT NULL DEFAULT '{}'
+  id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  actor_user_id  uuid REFERENCES users (id),     -- NULL = ระบบ
+  action         text NOT NULL,                  -- เช่น grant.create, code.transfer, setting.update
+  resource_type  text NOT NULL,
+  resource_id    text NOT NULL,
+  before         jsonb,                          -- ปิดข้อมูลอ่อนไหวก่อนบันทึก
+  after          jsonb,
+  reason         text,
+  ip             inet,
+  created_at     timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX audit_logs_resource_idx ON audit_logs (resource_type, resource_id);
-CREATE INDEX audit_logs_actor_idx ON audit_logs (actor_user_id, occurred_at DESC);
+CREATE INDEX audit_logs_actor_idx ON audit_logs (actor_user_id, created_at DESC);
 CREATE TRIGGER audit_logs_append_only BEFORE UPDATE OR DELETE ON audit_logs
   FOR EACH ROW EXECUTE FUNCTION forbid_change();
-COMMENT ON TABLE audit_logs IS 'ใคร ดูหรือทำอะไร เมื่อไร · เพิ่มอย่างเดียว แก้หรือลบไม่ได้';
+COMMENT ON TABLE audit_logs IS 'บันทึกการเปลี่ยนแปลงของเงิน สิทธิ์ รหัส เอกสาร ข้อมูลส่วนบุคคล และค่าตั้ง · ห้ามลบ';
+
+CREATE TABLE pii_access_logs (
+  id               bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  staff_user_id    uuid NOT NULL REFERENCES staff_members (user_id),
+  subject_user_id  uuid NOT NULL REFERENCES users (id),
+  field            text NOT NULL,                -- เช่น phone, address
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX pii_access_logs_subject_idx ON pii_access_logs (subject_user_id, created_at DESC);
+CREATE TRIGGER pii_access_logs_append_only BEFORE UPDATE OR DELETE ON pii_access_logs
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
+COMMENT ON TABLE pii_access_logs IS 'ทีมงานกดดูเบอร์หรือที่อยู่เต็ม ระบบบันทึกว่าใครดูของใคร';
 
 
 -- =============================================================================
--- 16. View ข้อมูลรวมสำหรับผู้บริหาร — ไม่มีชื่อนักเรียนและเนื้อหาส่วนตัว (ข้อ 31, 43)
+-- 8. trigger ของตารางที่แก้ได้ (updated_at)
 -- =============================================================================
 
-CREATE VIEW org_activity_summary AS
-SELECT
-  o.id AS organization_id,
-  (SELECT count(*) FROM memberships m
-    WHERE m.organization_id = o.id AND m.status = 'active')                         AS active_members,
-  (SELECT count(DISTINCT c.owner_user_id) FROM cases c
-    WHERE c.organization_id = o.id)                                                 AS teachers_with_cases,
-  (SELECT count(*) FROM canvases cv JOIN cases c ON c.id = cv.case_id
-    WHERE c.organization_id = o.id AND cv.status <> 'archived')                     AS canvases,
-  (SELECT count(*) FROM action_plans ap
-    WHERE ap.organization_id = o.id AND ap.status = 'active')                       AS active_action_plans,
-  (SELECT count(*) FROM practice_logs pl
-     JOIN action_items ai ON ai.id = pl.action_item_id
-     JOIN action_plans ap ON ap.id = ai.action_plan_id
-    WHERE ap.organization_id = o.id AND pl.outcome = 'done'
-      AND pl.recorded_at >= now() - interval '30 days')                             AS practice_done_30d
-FROM organizations o;
-COMMENT ON VIEW org_activity_summary IS 'ตัวเลขรวมระดับองค์กร ไม่เปิดเผยข้อมูลรายคน (Management Data ≠ Development Data)';
+CREATE TRIGGER users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER addresses_updated_at BEFORE UPDATE ON addresses FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER schools_directory_updated_at BEFORE UPDATE ON schools_directory FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER organizations_updated_at BEFORE UPDATE ON organizations FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER org_memberships_updated_at BEFORE UPDATE ON org_memberships FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER staff_members_updated_at BEFORE UPDATE ON staff_members FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER system_settings_updated_at BEFORE UPDATE ON system_settings FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER plans_updated_at BEFORE UPDATE ON plans FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER subscriptions_updated_at BEFORE UPDATE ON subscriptions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER events_updated_at BEFORE UPDATE ON events FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER seat_pools_updated_at BEFORE UPDATE ON seat_pools FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER products_updated_at BEFORE UPDATE ON products FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER inventory_holds_updated_at BEFORE UPDATE ON inventory_holds FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER shipments_updated_at BEFORE UPDATE ON shipments FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER reconciliation_items_updated_at BEFORE UPDATE ON reconciliation_items FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER notification_templates_updated_at BEFORE UPDATE ON notification_templates FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 
--- -----------------------------------------------------------------------------
--- trigger updated_at ของทุกตารางที่มีคอลัมน์นี้ (ยกเว้น practice_logs ที่มี trigger ของตัวเอง)
--- -----------------------------------------------------------------------------
-DO $$
-DECLARE t text;
+-- =============================================================================
+-- 9. ฟังก์ชันที่ต้องล็อกแถว (API เรียกผ่านฟังก์ชันเหล่านี้เท่านั้น)
+-- =============================================================================
+
+-- ตรวจทุกรายการที่เข้าสมุดเครดิต
+--   grant : คูปองที่ได้ครั้งเดียวต่อบัญชี ห้ามได้ซ้ำ
+--   อื่น ๆ : ต้องอ้างก้อนของเจ้าของและชนิดเดียวกัน · ห้ามหักจากก้อนที่หมดอายุ · ก้อนห้ามติดลบ
+--           คืน (return) ได้เท่ากับที่หักไปเท่านั้น และคืนได้ครั้งเดียว (unique index)
+CREATE FUNCTION credit_ledger_check() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  lot        credit_ledger;
+  remaining  integer;
 BEGIN
-  FOR t IN
-    SELECT c.table_name FROM information_schema.columns c
-    JOIN information_schema.tables tb ON tb.table_name = c.table_name AND tb.table_schema = c.table_schema
-    WHERE c.table_schema = 'public' AND c.column_name = 'updated_at'
-      AND tb.table_type = 'BASE TABLE' AND c.table_name <> 'practice_logs'
-  LOOP
-    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()',
-                   t || '_set_updated_at', t);
-  END LOOP;
+  IF NEW.entry_type = 'grant' THEN
+    IF (SELECT once_per_holder FROM credit_types WHERE code = NEW.credit_type_code) THEN
+      PERFORM pg_advisory_xact_lock(hashtext(
+        'credit-once:' || coalesce(NEW.holder_user_id, NEW.holder_org_id)::text || ':' || NEW.credit_type_code));
+      IF EXISTS (SELECT 1 FROM credit_ledger
+                  WHERE entry_type = 'grant' AND credit_type_code = NEW.credit_type_code
+                    AND holder_user_id IS NOT DISTINCT FROM NEW.holder_user_id
+                    AND holder_org_id IS NOT DISTINCT FROM NEW.holder_org_id) THEN
+        RAISE EXCEPTION 'เครดิต % ได้ครั้งเดียวต่อบัญชี', NEW.credit_type_code USING ERRCODE = 'unique_violation';
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO lot FROM credit_ledger WHERE id = NEW.lot_id FOR UPDATE;
+  IF lot.entry_type IS DISTINCT FROM 'grant'
+     OR lot.credit_type_code <> NEW.credit_type_code
+     OR lot.holder_user_id IS DISTINCT FROM NEW.holder_user_id
+     OR lot.holder_org_id IS DISTINCT FROM NEW.holder_org_id THEN
+    RAISE EXCEPTION 'lot_id ต้องชี้ไปที่ก้อนเครดิตของเจ้าของและชนิดเดียวกัน' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.entry_type = 'use' AND lot.expires_at IS NOT NULL AND lot.expires_at <= now() THEN
+    RAISE EXCEPTION 'ก้อนเครดิตนี้หมดอายุแล้ว' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.entry_type = 'return' AND NOT EXISTS (
+       SELECT 1 FROM credit_ledger
+        WHERE id = NEW.reverses_id AND entry_type = 'use' AND lot_id = NEW.lot_id AND amount = -NEW.amount) THEN
+    RAISE EXCEPTION 'คืนเครดิตได้เท่ากับรายการที่หักไปจากก้อนเดียวกันเท่านั้น' USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT lot.amount + coalesce(sum(amount), 0) INTO remaining FROM credit_ledger WHERE lot_id = NEW.lot_id;
+  IF remaining + NEW.amount < 0 THEN
+    RAISE EXCEPTION 'เครดิตในก้อนนี้เหลือ % ไม่พอหัก %', remaining, -NEW.amount USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
 END $$;
+CREATE TRIGGER credit_ledger_check BEFORE INSERT ON credit_ledger
+  FOR EACH ROW EXECUTE FUNCTION credit_ledger_check();
+
+-- หักเครดิตแบบปลอดภัย: ล็อกทุกก้อนของเจ้าของนี้ก่อน แล้วหักจากก้อนที่หมดอายุก่อนก่อน
+-- เหลือไม่พอ = ไม่หักเลยสักก้อน (ทั้งคำสั่งย้อนกลับ) · amount > 1 ได้ เช่น ร่าง Canvas ทั้งใบ
+CREATE FUNCTION use_credit(p_user uuid, p_org uuid, p_type text, p_amount integer,
+                           p_ref_type text, p_ref_id text, p_actor uuid)
+RETURNS SETOF credit_ledger LANGUAGE plpgsql AS $$
+DECLARE
+  lot    record;
+  need   integer := p_amount;
+  taken  credit_ledger;
+BEGIN
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RAISE EXCEPTION 'จำนวนที่หักต้องมากกว่า 0' USING ERRCODE = 'check_violation';
+  END IF;
+
+  PERFORM 1 FROM credit_ledger
+   WHERE entry_type = 'grant' AND credit_type_code = p_type
+     AND holder_user_id IS NOT DISTINCT FROM p_user AND holder_org_id IS NOT DISTINCT FROM p_org
+   ORDER BY id
+     FOR UPDATE;
+
+  FOR lot IN
+    SELECT id, remaining FROM credit_lots
+     WHERE holder_user_id IS NOT DISTINCT FROM p_user AND holder_org_id IS NOT DISTINCT FROM p_org
+       AND credit_type_code = p_type AND NOT is_expired AND remaining > 0
+     ORDER BY expires_at NULLS LAST, id
+  LOOP
+    INSERT INTO credit_ledger (holder_user_id, holder_org_id, credit_type_code, entry_type, amount,
+                               lot_id, usage_ref_type, usage_ref_id, created_by)
+    VALUES (p_user, p_org, p_type, 'use', -least(lot.remaining, need),
+            lot.id, p_ref_type, p_ref_id, p_actor)
+    RETURNING * INTO taken;
+    RETURN NEXT taken;
+    need := need + taken.amount;
+    EXIT WHEN need = 0;
+  END LOOP;
+
+  IF need > 0 THEN
+    RAISE EXCEPTION 'เครดิต % ไม่พอ ขาดอีก %', p_type, need USING ERRCODE = 'check_violation';
+  END IF;
+END $$;
+
+-- ราคาต่อชิ้นตามจำนวนและวันที่ (ราคาขั้นจำนวน + ราคาช่วงโปรโมชัน)
+-- ขั้นจำนวนที่สูงสุดที่ถึงก่อน · ถ้าขั้นเดียวกันมีหลายราคาซ้อนช่วงเวลา ใช้ราคาที่เริ่มทีหลัง (โปรโมชัน)
+CREATE FUNCTION unit_price(p_product uuid, p_quantity integer, p_at timestamptz DEFAULT now())
+RETURNS bigint LANGUAGE sql STABLE AS $$
+  SELECT price_satang FROM prices
+   WHERE product_id = p_product AND min_quantity <= p_quantity
+     AND valid_from <= p_at AND (valid_until IS NULL OR valid_until > p_at)
+   ORDER BY min_quantity DESC, valid_from DESC
+   LIMIT 1;
+$$;
+
+-- กันของไว้ให้คำสั่งซื้อ: ล็อกแถวสินค้าก่อน จึงไม่มี 2 คนได้ชิ้นสุดท้ายพร้อมกัน
+CREATE FUNCTION hold_stock(p_product uuid, p_order uuid, p_quantity integer, p_expires_at timestamptz)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE
+  left_qty  integer;
+  hold_id   uuid;
+BEGIN
+  PERFORM 1 FROM products WHERE id = p_product AND tracks_stock FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'สินค้านี้ไม่ได้นับสต็อก' USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT available INTO left_qty FROM product_stock WHERE product_id = p_product;
+  IF left_qty < p_quantity THEN
+    RAISE EXCEPTION 'สินค้าเหลือ % ชิ้น ไม่พอสำหรับ % ชิ้น', left_qty, p_quantity USING ERRCODE = 'check_violation';
+  END IF;
+  INSERT INTO inventory_holds (product_id, order_id, quantity, expires_at)
+  VALUES (p_product, p_order, p_quantity, p_expires_at)
+  RETURNING id INTO hold_id;
+  RETURN hold_id;
+END $$;
+
+-- ออกเลขที่เอกสารถัดไป: แถวของประเภทและปีนั้นถูกล็อกจนจบธุรกรรม
+-- ต้องเรียกในธุรกรรมเดียวกับการเพิ่ม financial_documents ถ้าธุรกรรมล้มเลขจะย้อนกลับด้วย จึงไม่ข้าม
+CREATE FUNCTION next_document_number(p_doc_type text, p_year integer) RETURNS integer
+LANGUAGE plpgsql AS $$
+DECLARE
+  n integer;
+BEGIN
+  INSERT INTO document_sequences (doc_type, year, last_number) VALUES (p_doc_type, p_year, 1)
+  ON CONFLICT (doc_type, year) DO UPDATE SET last_number = document_sequences.last_number + 1
+  RETURNING last_number INTO n;
+  RETURN n;
+END $$;
+
+
+-- =============================================================================
+-- 10. view สำหรับอ่านสถานะที่คำนวณจากข้อมูล
+-- =============================================================================
+
+-- สถานะการได้สิทธิ์ (Appendix ก.: รอเริ่ม / ใช้งานอยู่ / ผ่อนผัน / หมดอายุ / ยกเลิก)
+CREATE VIEW grant_statuses AS
+SELECT g.*,
+       CASE
+         WHEN g.cancelled_at IS NOT NULL                     THEN 'cancelled'
+         WHEN g.starts_at IS NULL OR g.starts_at > now()     THEN 'pending'
+         WHEN g.ends_at IS NOT NULL AND g.ends_at <= now()   THEN 'expired'
+         WHEN g.is_grace                                     THEN 'grace'
+         ELSE 'active'
+       END AS status
+  FROM grants g;
+
+-- สิทธิ์ที่ใช้ได้ตอนนี้ของแต่ละเจ้าของ · ฟังก์ชัน can() / limit() ของ API อ่านจาก view นี้
+-- ยังไม่รวมสิทธิ์ของโรงเรียนที่ครูได้ที่นั่ง (Phase 3)
+CREATE VIEW active_entitlements AS
+SELECT g.holder_user_id, g.holder_org_id, g.id AS grant_id, g.ends_at,
+       i.entitlement_code, d.value_type, d.combine_rule, i.entitlement_value, i.is_unlimited
+  FROM grant_statuses g
+  JOIN plan_version_items i ON i.part_id = g.part_id AND i.entitlement_code IS NOT NULL
+  JOIN entitlement_defs d ON d.code = i.entitlement_code
+ WHERE g.status IN ('active', 'grace');
+
+-- ก้อนเครดิตและยอดคงเหลือของแต่ละก้อน
+CREATE VIEW credit_lots AS
+SELECT l.id, l.holder_user_id, l.holder_org_id, l.credit_type_code, l.grant_id,
+       l.amount AS granted, l.expires_at,
+       l.amount + coalesce((SELECT sum(x.amount) FROM credit_ledger x WHERE x.lot_id = l.id), 0) AS remaining,
+       (l.expires_at IS NOT NULL AND l.expires_at <= now()) AS is_expired
+  FROM credit_ledger l
+ WHERE l.entry_type = 'grant';
+
+-- ยอดเครดิตคงเหลือที่ยังไม่หมดอายุ · creditBalance() ของ API เรียกตัวนี้
+CREATE FUNCTION credit_balance(p_user uuid, p_org uuid, p_type text) RETURNS integer
+LANGUAGE sql STABLE AS $$
+  SELECT coalesce(sum(remaining), 0)::integer FROM credit_lots
+   WHERE holder_user_id IS NOT DISTINCT FROM p_user AND holder_org_id IS NOT DISTINCT FROM p_org
+     AND credit_type_code = p_type AND NOT is_expired;
+$$;
+
+-- สต็อก: มีอยู่ − ที่กันไว้ (เฉพาะที่ยังไม่หมดเวลา)
+CREATE VIEW product_stock AS
+SELECT p.id AS product_id,
+       coalesce((SELECT sum(m.quantity) FROM inventory_movements m WHERE m.product_id = p.id), 0) AS on_hand,
+       coalesce((SELECT sum(h.quantity) FROM inventory_holds h
+                  WHERE h.product_id = p.id AND h.status = 'held' AND h.expires_at > now()), 0) AS held,
+       coalesce((SELECT sum(m.quantity) FROM inventory_movements m WHERE m.product_id = p.id), 0)
+     - coalesce((SELECT sum(h.quantity) FROM inventory_holds h
+                  WHERE h.product_id = p.id AND h.status = 'held' AND h.expires_at > now()), 0) AS available
+  FROM products p
+ WHERE p.tracks_stock;
+
+-- ยอดรับแล้วและยอดคืนของแต่ละคำสั่งซื้อ
+CREATE VIEW order_payment_totals AS
+SELECT o.id AS order_id, o.amount_due_satang,
+       coalesce((SELECT sum(p.amount_satang) FROM payments p
+                  WHERE p.order_id = o.id AND p.status = 'succeeded'), 0) AS paid_satang,
+       coalesce((SELECT sum(r.amount_satang) FROM refunds r JOIN payments p ON p.id = r.payment_id
+                  WHERE p.order_id = o.id AND r.status = 'completed'), 0) AS refunded_satang
+  FROM orders o;
+
+-- คำสั่งซื้อการ์ด: รหัสที่ส่งไปกี่รหัส กดใช้แล้วกี่รหัส (ตัวชี้วัด "ผู้ซื้อที่เปิดใช้จริง")
+CREATE VIEW order_code_redemptions AS
+SELECT s.order_id,
+       count(*) AS codes_shipped,
+       count(rc.redeemed_at) AS codes_redeemed
+  FROM shipments s
+  JOIN shipment_codes sc ON sc.shipment_id = s.id
+  JOIN redeem_codes rc ON rc.id = sc.redeem_code_id
+ GROUP BY s.order_id;
+
+-- สถานะรหัสในกล่อง (O5: สร้างแล้ว → ส่งโรงพิมพ์ → อยู่ในกล่อง → เปิดใช้แล้ว · ยกเลิก)
+CREATE VIEW redeem_code_statuses AS
+SELECT rc.id, rc.batch_id, rc.last4, rc.redeemed_by, rc.redeemed_at,
+       CASE
+         WHEN rc.cancelled_at IS NOT NULL OR b.cancelled_at IS NOT NULL THEN 'cancelled'
+         WHEN rc.redeemed_at IS NOT NULL THEN 'redeemed'
+         WHEN b.boxed_at IS NOT NULL     THEN 'in_box'
+         WHEN b.exported_at IS NOT NULL  THEN 'sent_to_printer'
+         ELSE 'created'
+       END AS status
+  FROM redeem_codes rc
+  JOIN code_batches b ON b.id = rc.batch_id;
+
+-- สถานะใบเสนอราคา (O5: ออกใหม่ → ควรโทรตาม → โทรตามแล้ว → ชำระแล้ว เป็นคำสั่งซื้อ · หมดอายุ)
+CREATE VIEW quotation_statuses AS
+SELECT q.id, q.doc_number, q.issued_at, q.valid_until,
+       CASE
+         WHEN q.voided_at IS NOT NULL THEN 'void'
+         WHEN EXISTS (SELECT 1 FROM orders o WHERE o.quotation_id = q.id
+                         AND o.status NOT IN ('pending_payment', 'awaiting_verification', 'underpaid',
+                                              'cancelled', 'expired')) THEN 'converted'
+         WHEN q.valid_until <= now() THEN 'expired'
+         WHEN EXISTS (SELECT 1 FROM quotation_followups f WHERE f.quotation_id = q.id) THEN 'called'
+         WHEN q.issued_at + make_interval(days => coalesce(
+                (SELECT (value #>> '{}')::integer FROM system_settings WHERE key = 'quotation_followup_days'), 7))
+              <= now() THEN 'followup_due'
+         ELSE 'new'
+       END AS status
+  FROM financial_documents q
+ WHERE q.doc_type = 'quotation';
+
+-- โควตาข้อความ LINE ที่ใช้ไปในเดือนนี้ (เวลาไทย)
+CREATE VIEW line_quota_usage AS
+SELECT date_trunc('month', sent_at AT TIME ZONE 'Asia/Bangkok') AS month_th,
+       count(*) AS pushes_sent
+  FROM notifications
+ WHERE counts_line_quota AND status = 'sent'
+ GROUP BY 1;
 
 COMMIT;

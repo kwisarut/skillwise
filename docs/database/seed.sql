@@ -1,732 +1,625 @@
 -- =============================================================================
--- SkillWise — ข้อมูลตัวอย่าง (mock data) สำหรับ schema.sql
+-- SkillwisE — ข้อมูลตัวอย่าง (mock data) สำหรับ schema.sql
 -- =============================================================================
--- ใช้ทดสอบ schema และเป็นตัวอย่างให้ทีมเห็นข้อมูลไหลครบวงจร Product Loop (ข้อ 48)
+-- ใช้ทดสอบ schema และให้ทีมเห็นข้อมูลของ Phase 1 ไหลครบ:
+-- ซื้อการ์ด → ตรวจสลิป → แพ็กส่ง → กดรหัสในกล่อง → ใช้คูปองจองเวิร์กช็อป · ใบเสนอราคาโรงเรียน
 --
--- ข้อมูลทั้งหมดแต่งขึ้น: ชื่อคน ชื่อโรงเรียน และชื่อนักเรียนเป็นชื่อสมมติ
--- อีเมลใช้โดเมน example.com · ไม่มีข้อมูลจริงจากฐานข้อมูล Sila5School
--- ตัวเลขราคา โควตา และเกณฑ์คะแนนเป็นค่าตัวอย่าง เรื่องเหล่านี้ยัง [OPEN] (ข้อ 36, 50)
+-- > ราคาและตัวเลขทั้งหมดเป็นข้อมูลตัวอย่าง (mockup) เปลี่ยนแปลงได้ ค่าจริงตั้งในหลังบ้าน
+--   ตัวเลขที่ยัง [OPEN] (เช่น ราคาการ์ดชุดโรงเรียน ค่าส่ง อัตราหัก ณ ที่จ่าย) เป็นค่าสมมติ
+-- ข้อมูลทั้งหมดแต่งขึ้น: ชื่อคนและชื่อโรงเรียนเป็นชื่อสมมติ อีเมลใช้โดเมน example.com
+-- รหัสในกล่องเป็นรหัสทดสอบ เลขผู้เสียภาษีเป็นเลขสมมติ
 --
 -- วันที่คิดจากวันที่รัน seed (เขตเวลา Asia/Bangkok) ข้อมูลจึงสมเหตุสมผลทุกครั้งที่รัน
 -- id เป็น uuid ที่ตั้งตายตัว อ่านง่ายและอ้างถึงกันได้:
---   a1 users · b1 organizations · b2 org_units · c1 roles · 91 files · 92 policy_documents
---   d1 products · d2 seat_pools · d3 seat_assignments · d4 entitlements · 93–96 billing
---   e1 students · f1–f8 tool/case/canvas · 71 ai_jobs · 72–73 plans · 81–89 practice/coaching
---   97–99 notification/content
+--   a1 users · b1 schools_directory · b2 organizations · 91 files · 92 policy_documents
+--   c1 plans · c2 plan_versions · c3 plan_version_parts · c5 grants
+--   d1 products · e1 code_batches · e2 redeem_codes · e3 ชุดที่มาของการกดรหัส
+--   f1 events · f2 seat_pools · f3 seat_bookings
+--   61 orders · 63 payments · 64 shipments · 65 financial_documents
 --
 -- วิธีรัน: psql -v ON_ERROR_STOP=1 -f schema.sql -f seed.sql
 -- =============================================================================
 
 BEGIN;
 
--- ตัวช่วยเฉพาะ session นี้: วันที่และเวลานับจากวันนี้ (Asia/Bangkok)
-CREATE FUNCTION pg_temp.d(offset_days integer) RETURNS date LANGUAGE sql AS
-$$ SELECT (now() AT TIME ZONE 'Asia/Bangkok')::date + offset_days $$;
+-- ตัวช่วยเฉพาะ session นี้
 CREATE FUNCTION pg_temp.ts(offset_days integer, hhmm text) RETURNS timestamptz LANGUAGE sql AS
 $$ SELECT ((now() AT TIME ZONE 'Asia/Bangkok')::date + offset_days + hhmm::time) AT TIME ZONE 'Asia/Bangkok' $$;
+CREATE FUNCTION pg_temp.be_year() RETURNS integer LANGUAGE sql AS
+$$ SELECT extract(year FROM now() AT TIME ZONE 'Asia/Bangkok')::integer + 543 $$;
+CREATE FUNCTION pg_temp.code_hash(code text) RETURNS text LANGUAGE sql AS
+$$ SELECT encode(sha256(convert_to(upper(code), 'UTF8')), 'hex') $$;
 
 
 -- -----------------------------------------------------------------------------
--- 1. ผู้ใช้ บัญชี login และความยินยอม
+-- 1. ค่าตั้งระบบ
 -- -----------------------------------------------------------------------------
 
-INSERT INTO users (id, email, display_name, first_name, last_name, last_login_at) VALUES
-  ('a1000000-0000-4000-8000-000000000001', 'admin@example.com',       'แอดมินระบบ (ตัวอย่าง)', 'แอดมิน', 'ระบบ',     pg_temp.ts(0, '08:00')),
-  ('a1000000-0000-4000-8000-000000000002', 'support@example.com',     'ทีมซัพพอร์ต (ตัวอย่าง)', 'ซัพพอร์ต', 'ระบบ',    pg_temp.ts(-1, '09:00')),
-  ('a1000000-0000-4000-8000-000000000003', 'coach.wanna@example.com', 'โค้ชวรรณา',             'วรรณา',   'ใฝ่รู้',    pg_temp.ts(-1, '19:30')),
-  ('a1000000-0000-4000-8000-000000000004', 'kanda@example.com',       'ครูกานดา',              'กานดา',   'ใจดี',     pg_temp.ts(0, '07:45')),
-  ('a1000000-0000-4000-8000-000000000005', 'prawit@example.com',      'ครูประวิทย์',            'ประวิทย์', 'มั่นคง',   pg_temp.ts(-2, '16:10')),
-  ('a1000000-0000-4000-8000-000000000006', 'director@example.com',    'ผอ.สมหมาย',             'สมหมาย',  'ตัวอย่าง', pg_temp.ts(-3, '10:00')),
-  ('a1000000-0000-4000-8000-000000000007', 'napa@example.com',        'ครูนภา',                'นภา',     'อิสระ',    pg_temp.ts(-1, '20:15'));
--- ผู้ใช้ที่สมัครด้วย LINE อย่างเดียว ไม่มีอีเมล
-INSERT INTO users (id, display_name, first_name) VALUES
-  ('a1000000-0000-4000-8000-000000000008', 'ครูวิไล (LINE)', 'วิไล');
-
-INSERT INTO user_identities (user_id, provider, provider_subject, email_at_provider, can_receive_messages) VALUES
-  ('a1000000-0000-4000-8000-000000000001', 'google', 'google-mock-0001', 'admin@example.com', false),
-  ('a1000000-0000-4000-8000-000000000002', 'google', 'google-mock-0002', 'support@example.com', false),
-  ('a1000000-0000-4000-8000-000000000003', 'google', 'google-mock-0003', 'coach.wanna@example.com', false),
-  ('a1000000-0000-4000-8000-000000000004', 'google', 'google-mock-0004', 'kanda@example.com', false),
-  ('a1000000-0000-4000-8000-000000000004', 'line',   'Umock0000000000000000000000000004', NULL, true),
-  ('a1000000-0000-4000-8000-000000000005', 'google', 'google-mock-0005', 'prawit@example.com', false),
-  ('a1000000-0000-4000-8000-000000000006', 'google', 'google-mock-0006', 'director@example.com', false),
-  ('a1000000-0000-4000-8000-000000000007', 'google', 'google-mock-0007', 'napa@example.com', false),
-  ('a1000000-0000-4000-8000-000000000008', 'line',   'Umock0000000000000000000000000008', NULL, true);
-
-INSERT INTO auth_sessions (id, user_id, kind, token_hash, ip, user_agent, created_at, last_seen_at, expires_at, absolute_expires_at) VALUES
-  ('9a000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'remember',
-   sha256('mock-remember-token-0001'::bytea), '203.0.113.10', 'Mozilla/5.0 (mock)',
-   pg_temp.ts(-2, '07:40'), pg_temp.ts(0, '07:45'), pg_temp.ts(5, '07:40'), pg_temp.ts(28, '07:40'));
-
-INSERT INTO policy_documents (id, kind, version, title, body, is_required, effective_at) VALUES
-  ('92000000-0000-4000-8000-000000000001', 'privacy',   '1.0', 'นโยบายความเป็นส่วนตัว (ตัวอย่าง)', 'เนื้อหาตัวอย่าง', true,  pg_temp.ts(-60, '00:00')),
-  ('92000000-0000-4000-8000-000000000002', 'terms',     '1.0', 'ข้อตกลงการใช้งาน (ตัวอย่าง)',     'เนื้อหาตัวอย่าง', true,  pg_temp.ts(-60, '00:00')),
-  ('92000000-0000-4000-8000-000000000003', 'marketing', '1.0', 'การรับข่าวสารและโฆษณา (ตัวอย่าง)', 'เนื้อหาตัวอย่าง', false, pg_temp.ts(-60, '00:00'));
-
--- ทุกคนยอมรับนโยบายที่บังคับ · ด้านการตลาดเลือกแยกได้จริง (ระบบเดิมสองค่าเท่ากันทุกบัญชี)
-INSERT INTO user_consents (user_id, policy_document_id, decision, decided_at)
-SELECT u.id, p.id, 'granted', pg_temp.ts(-30, '10:00')
-FROM users u CROSS JOIN policy_documents p
-WHERE p.is_required;
-INSERT INTO user_consents (user_id, policy_document_id, decision, decided_at) VALUES
-  ('a1000000-0000-4000-8000-000000000004', '92000000-0000-4000-8000-000000000003', 'granted',  pg_temp.ts(-30, '10:00')),
-  ('a1000000-0000-4000-8000-000000000005', '92000000-0000-4000-8000-000000000003', 'declined', pg_temp.ts(-30, '10:05')),
-  ('a1000000-0000-4000-8000-000000000007', '92000000-0000-4000-8000-000000000003', 'granted',  pg_temp.ts(-20, '21:00')),
-  ('a1000000-0000-4000-8000-000000000007', '92000000-0000-4000-8000-000000000003', 'withdrawn', pg_temp.ts(-5, '21:00'));
+INSERT INTO system_settings (key, value, description) VALUES
+  ('pro_launch_at',              'null', 'วันเปิดระบบ Pro · null = ยังไม่เปิด Pro ที่ได้จากรหัสในกล่องจึงรอเริ่ม'),
+  ('order_payment_window_hours', '24',   'คำสั่งซื้อปกติหมดเวลาชำระกี่ชั่วโมง [ค่าตัวอย่าง]'),
+  ('promptpay_qr_minutes',       '15',   'QR พร้อมเพย์มีอายุกี่นาที'),
+  ('quotation_valid_days',       '30',   'ใบเสนอราคายืนราคากี่วัน'),
+  ('quotation_followup_days',    '7',    'ออกใบเสนอราคาครบกี่วันจึงเตือนทีมให้โทรตาม'),
+  ('redeem_max_failures',        '5',    'กดรหัสผิดได้กี่ครั้งก่อนต้องรอ'),
+  ('redeem_lock_minutes',        '15',   'กดรหัสผิดครบแล้วต้องรอกี่นาที'),
+  ('code_redeem_reminder_days',  '5',    'ส่งของแล้วกี่วันจึงเตือนให้เปิดใช้รหัส'),
+  ('voucher_valid_months',       '12',   'คูปองของผู้ซื้อการ์ดมีอายุกี่เดือน [OPEN ค่าตัวอย่าง]'),
+  ('line_monthly_push_cap',      '500',  'เพดานข้อความ LINE ที่ระบบส่งเองต่อเดือน [ค่าตัวอย่าง รอตรวจแพ็กเกจ LINE OA]');
 
 
 -- -----------------------------------------------------------------------------
--- 2. องค์กร โครงสร้างภายใน และสมาชิก
+-- 2. ผู้ใช้ ช่องทางเข้าสู่ระบบ ความยินยอม และที่อยู่
 -- -----------------------------------------------------------------------------
 
-INSERT INTO organizations (id, name, org_kind, attributes, province, postal_code, created_by) VALUES
-  ('b1000000-0000-4000-8000-000000000001', 'โรงเรียนตัวอย่างวิทยา (สมมติ)', 'school',
-   '{"affiliation": "สังกัดตัวอย่าง", "size": "กลาง"}', 'นครราชสีมา', '30000', 'a1000000-0000-4000-8000-000000000001'),
-  -- องค์กรที่ไม่ใช่โรงเรียน: โครงสร้างไม่ผูกกับโรงเรียนไทย (ข้อ 35)
-  ('b1000000-0000-4000-8000-000000000002', 'ศูนย์การเรียนรู้ทดลอง (สมมติ)', 'learning_center',
-   '{}', 'กรุงเทพมหานคร', '10200', 'a1000000-0000-4000-8000-000000000001');
+INSERT INTO users (id, display_name, email, last_login_at, created_at) VALUES
+  ('a1000000-0000-4000-8000-000000000001', 'ครูฟ้า',   'fah@example.com',        pg_temp.ts(-1, '19:30'), pg_temp.ts(-60, '09:00')),
+  ('a1000000-0000-4000-8000-000000000002', 'ครูนนท์',  'non@example.com',        pg_temp.ts(0, '07:10'),  pg_temp.ts(-60, '09:05')),
+  ('a1000000-0000-4000-8000-000000000003', 'ครูมะลิ',  'mali@example.com',       pg_temp.ts(-2, '20:00'), pg_temp.ts(-30, '18:00')),
+  ('a1000000-0000-4000-8000-000000000004', 'ครูบี',    'bee@example.com',        pg_temp.ts(-8, '13:00'), pg_temp.ts(-25, '13:00')),
+  ('a1000000-0000-4000-8000-000000000005', 'ครูต้น',   NULL,                     pg_temp.ts(0, '08:00'),  pg_temp.ts(-1, '21:00')),
+  ('a1000000-0000-4000-8000-000000000006', 'ครูแก้ว',  'kaew@example.com',       pg_temp.ts(0, '09:30'),  pg_temp.ts(-2, '10:00')),
+  ('a1000000-0000-4000-8000-000000000011', 'ทีมงานแพ็กของ', 'packing@example.com',    NULL, pg_temp.ts(-90, '09:00')),
+  ('a1000000-0000-4000-8000-000000000012', 'ทีมงานบัญชี',   'accounting@example.com', NULL, pg_temp.ts(-90, '09:00')),
+  ('a1000000-0000-4000-8000-000000000013', 'ทีมงานอบรม',    'training@example.com',   NULL, pg_temp.ts(-90, '09:00')),
+  ('a1000000-0000-4000-8000-000000000014', 'ผู้ดูแลระบบ',    'admin@example.com',      NULL, pg_temp.ts(-90, '09:00'));
 
-INSERT INTO org_units (id, organization_id, parent_id, kind, name, sort_order) VALUES
-  ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', NULL, 'level', 'ป.4', 1),
-  ('b2000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000001', 'classroom', 'ป.4/1', 1),
-  ('b2000000-0000-4000-8000-000000000003', 'b1000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000001', 'classroom', 'ป.4/2', 2),
-  ('b2000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', NULL, 'group', 'ชมรมดนตรี', 2);
+INSERT INTO auth_accounts (user_id, provider, provider_user_id, email_at_provider, line_is_friend, linked_at) VALUES
+  ('a1000000-0000-4000-8000-000000000001', 'line',   'Ufah000000000000000000000000000001', NULL, true,  pg_temp.ts(-60, '09:00')),
+  ('a1000000-0000-4000-8000-000000000001', 'google', 'google-sub-fah',  'fah@example.com',  false, pg_temp.ts(-59, '09:00')),
+  ('a1000000-0000-4000-8000-000000000002', 'google', 'google-sub-non',  'non@example.com',  false, pg_temp.ts(-60, '09:05')),
+  ('a1000000-0000-4000-8000-000000000002', 'line',   'Unon000000000000000000000000000002', NULL, true,  pg_temp.ts(-60, '09:06')),
+  ('a1000000-0000-4000-8000-000000000003', 'line',   'Umali00000000000000000000000000003', NULL, true,  pg_temp.ts(-30, '18:00')),
+  ('a1000000-0000-4000-8000-000000000004', 'google', 'google-sub-bee',  'bee@example.com',  false, pg_temp.ts(-25, '13:00')),
+  ('a1000000-0000-4000-8000-000000000005', 'line',   'Uton000000000000000000000000000005', NULL, true,  pg_temp.ts(-1, '21:00')),
+  ('a1000000-0000-4000-8000-000000000006', 'line',   'Ukaew0000000000000000000000000006', NULL, true,  pg_temp.ts(-2, '10:00')),
+  ('a1000000-0000-4000-8000-000000000011', 'google', 'google-sub-packing',    'packing@example.com',    false, pg_temp.ts(-90, '09:00')),
+  ('a1000000-0000-4000-8000-000000000012', 'google', 'google-sub-accounting', 'accounting@example.com', false, pg_temp.ts(-90, '09:00')),
+  ('a1000000-0000-4000-8000-000000000013', 'google', 'google-sub-training',   'training@example.com',   false, pg_temp.ts(-90, '09:00')),
+  ('a1000000-0000-4000-8000-000000000014', 'google', 'google-sub-admin',      'admin@example.com',      false, pg_temp.ts(-90, '09:00'));
 
-INSERT INTO memberships (user_id, organization_id, position_title, status, joined_at, ended_at, created_by) VALUES
-  ('a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'ครูประจำชั้น ป.4/1', 'active', pg_temp.ts(-200, '09:00'), NULL, 'a1000000-0000-4000-8000-000000000001'),
-  ('a1000000-0000-4000-8000-000000000005', 'b1000000-0000-4000-8000-000000000001', 'ครูดนตรี',          'active', pg_temp.ts(-40, '09:00'),  NULL, 'a1000000-0000-4000-8000-000000000004'),
-  ('a1000000-0000-4000-8000-000000000006', 'b1000000-0000-4000-8000-000000000001', 'ผู้อำนวยการ',        'active', pg_temp.ts(-200, '09:00'), NULL, 'a1000000-0000-4000-8000-000000000001'),
-  -- ครูประวิทย์เคยอยู่อีกองค์กร ย้ายออกแล้วประวัติยังอยู่
-  ('a1000000-0000-4000-8000-000000000005', 'b1000000-0000-4000-8000-000000000002', 'วิทยากร',            'left',   pg_temp.ts(-400, '09:00'), pg_temp.ts(-45, '17:00'), 'a1000000-0000-4000-8000-000000000001');
--- ครูนภาไม่มี membership: ครูอิสระ (ข้อ 34)
+INSERT INTO user_roles (user_id, role) VALUES
+  ('a1000000-0000-4000-8000-000000000001', 'teacher'),
+  ('a1000000-0000-4000-8000-000000000002', 'teacher'),
+  ('a1000000-0000-4000-8000-000000000003', 'teacher'),
+  ('a1000000-0000-4000-8000-000000000004', 'teacher'),
+  ('a1000000-0000-4000-8000-000000000004', 'coordinator'),
+  ('a1000000-0000-4000-8000-000000000005', 'teacher'),
+  ('a1000000-0000-4000-8000-000000000006', 'teacher');
 
--- ห้องที่ครูดูแล (ใช้กรองหน้าจอ ไม่ใช่สิทธิ์)
-INSERT INTO membership_org_units (membership_id, org_unit_id, organization_id)
-SELECT m.id, u.unit_id::uuid, m.organization_id
-FROM memberships m
-JOIN (VALUES
-  ('a1000000-0000-4000-8000-000000000004', 'b2000000-0000-4000-8000-000000000002'),
-  ('a1000000-0000-4000-8000-000000000005', 'b2000000-0000-4000-8000-000000000002'),
-  ('a1000000-0000-4000-8000-000000000005', 'b2000000-0000-4000-8000-000000000004')
-) AS u (user_id, unit_id) ON m.user_id = u.user_id::uuid
-WHERE m.organization_id = 'b1000000-0000-4000-8000-000000000001' AND m.status = 'active';
+INSERT INTO files (id, purpose, storage_key, content_type, size_bytes, uploaded_by) VALUES
+  ('91000000-0000-4000-8000-000000000001', 'payment_slip',       'slips/2026/ton-order-0002.jpg',  'image/jpeg',      182345, 'a1000000-0000-4000-8000-000000000005'),
+  ('91000000-0000-4000-8000-000000000002', 'payment_slip',       'slips/2026/kaew-order-0003.png', 'image/png',       201877, 'a1000000-0000-4000-8000-000000000006'),
+  ('91000000-0000-4000-8000-000000000003', 'payment_slip',       'slips/2026/mali-order-0001.jpg', 'image/jpeg',      176002, 'a1000000-0000-4000-8000-000000000003'),
+  ('91000000-0000-4000-8000-000000000004', 'financial_document', 'documents/receipt-0001.pdf',     'application/pdf', 58211,  NULL),
+  ('91000000-0000-4000-8000-000000000005', 'policy_document',    'policies/privacy-v1.pdf',        'application/pdf', 91233,  'a1000000-0000-4000-8000-000000000014'),
+  ('91000000-0000-4000-8000-000000000006', 'policy_document',    'policies/terms-v1.pdf',          'application/pdf', 88120,  'a1000000-0000-4000-8000-000000000014');
 
+INSERT INTO policy_documents (id, kind, version, file_id, published_at) VALUES
+  ('92000000-0000-4000-8000-000000000001', 'privacy', '1.0', '91000000-0000-4000-8000-000000000005', pg_temp.ts(-90, '09:00')),
+  ('92000000-0000-4000-8000-000000000002', 'terms',   '1.0', '91000000-0000-4000-8000-000000000006', pg_temp.ts(-90, '09:00')),
+  ('92000000-0000-4000-8000-000000000003', 'refund',  '1.0', NULL,                                   pg_temp.ts(-90, '09:00'));
 
--- -----------------------------------------------------------------------------
--- 3. สิทธิ์และบทบาท  [DIRECTION] ร่างแรก แอดมินปรับได้ (ข้อ 60.7) · Permission Matrix สุดท้ายยัง OPEN
--- -----------------------------------------------------------------------------
+-- ครูทุกคนยอมรับนโยบายและข้อกำหนดตอนสมัคร · ครูนนท์ยินยอมรับข่าวสารด้วย
+INSERT INTO consents (user_id, kind, policy_document_id, granted_at)
+SELECT u.id, p.kind, p.id, u.created_at
+  FROM users u
+ CROSS JOIN policy_documents p
+ WHERE p.kind IN ('privacy', 'terms')
+   AND u.id IN (SELECT user_id FROM user_roles WHERE role = 'teacher');
+INSERT INTO consents (user_id, kind, granted_at) VALUES
+  ('a1000000-0000-4000-8000-000000000002', 'marketing', pg_temp.ts(-60, '09:05'));
 
-INSERT INTO permissions (code, scope, description, is_sensitive) VALUES
-  ('admin.users.view',                    'platform',     'ดูรายชื่อและข้อมูลบัญชีผู้ใช้', false),
-  ('admin.users.manage',                  'platform',     'แก้ไข ระงับ หรือลบบัญชีผู้ใช้', false),
-  ('admin.organizations.view',            'platform',     'ดูข้อมูลองค์กรทั้งหมด', false),
-  ('admin.organizations.manage',          'platform',     'สร้างและแก้ไของค์กร', false),
-  ('admin.roles.manage',                  'platform',     'ปรับบทบาทและสิทธิ์', false),
-  ('admin.seats.grant',                   'platform',     'ให้ seat หรือสิทธิ์ใช้งานด้วยมือ', false),
-  ('admin.coaches.assign',                'platform',     'มอบหมายโค้ชให้ครูหรือ case', false),
-  ('admin.impersonate',                   'platform',     'login-as ผู้ใช้เพื่อช่วยแก้ปัญหา', true),
-  ('admin.audit.view',                    'platform',     'ดู audit log', false),
-  ('admin.ai_jobs.view',                  'platform',     'ดูสถานะและ error ของงาน AI', false),
-  ('admin.sensitive.student.view',        'platform',     'ดูชื่อนักเรียน', true),
-  ('admin.sensitive.reflection.view',     'platform',     'ดู reflection ของครู', true),
-  ('admin.sensitive.coach_feedback.view', 'platform',     'ดูเนื้อหา coach feedback', true),
-  ('admin.payments.verify',               'platform',     'ตรวจและยืนยันการชำระเงิน', false),
-  ('admin.content.manage',                'platform',     'สร้าง อนุมัติ และเผยแพร่เนื้อหาหน้าเว็บ', false),
-  ('admin.notifications.manage',          'platform',     'จัดการแม่แบบและดูผลการแจ้งเตือน', false),
-  ('coach.cases.view_assigned',           'platform',     'ดู case, Canvas, แผน และบันทึกของครูที่ได้รับมอบหมาย', false),
-  ('coach.feedback.write',                'platform',     'เขียน coach feedback', false),
-  ('org.members.manage',                  'organization', 'เชิญ ถอด และกำหนดบทบาทสมาชิกในองค์กร', false),
-  ('org.seats.manage',                    'organization', 'แจกและดึง seat ขององค์กร', false),
-  ('org.profile.manage',                  'organization', 'แก้ข้อมูลและโลโก้ขององค์กร', false),
-  ('org.units.manage',                    'organization', 'จัดโครงสร้างระดับ ห้อง และกลุ่ม', false),
-  ('org.students.view',                   'organization', 'ดูรายชื่อนักเรียนขององค์กร', false),
-  ('org.students.manage',                 'organization', 'เพิ่ม แก้ไข และ import นักเรียน', false),
-  ('org.dashboard.view_aggregate',        'organization', 'ดู dashboard ข้อมูลรวมขององค์กร', false),
-  ('org.billing.manage',                  'organization', 'ซื้อ seat และจัดการเอกสารการเงินขององค์กร', false),
-  ('self.profile.manage',                 'self',         'จัดการโปรไฟล์ บัญชี login และความยินยอมของตัวเอง', false),
-  ('self.tools.use',                      'self',         'ใช้ Tool, case, แผน, บันทึก และ reflection ของตัวเอง', false),
-  ('self.ai.request',                     'self',         'ส่งงานให้ AI ช่วย (ตามสิทธิ์และเครดิตที่มี)', false);
-
-INSERT INTO roles (id, code, name, scope, is_system, description) VALUES
-  ('c1000000-0000-4000-8000-000000000001', 'platform_super_admin',   'แอดมินสูงสุด',            'platform', true,  'จัดการระบบทั้งหมด ยกเว้นการเปิดข้อมูลอ่อนไหว'),
-  ('c1000000-0000-4000-8000-000000000002', 'platform_data_steward',  'ผู้ดูแลข้อมูลอ่อนไหว',     'platform', true,  'เปิดดูข้อมูลนักเรียน reflection และ feedback และ login-as ได้ ทุกครั้งถูกบันทึก'),
-  ('c1000000-0000-4000-8000-000000000003', 'platform_support_admin', 'ซัพพอร์ต',                'platform', false, 'ดูข้อมูลเพื่อช่วยผู้ใช้ ไม่เห็นข้อมูลอ่อนไหว'),
-  ('c1000000-0000-4000-8000-000000000004', 'platform_finance_admin', 'การเงิน',                 'platform', false, 'ตรวจการชำระเงินและให้ seat'),
-  ('c1000000-0000-4000-8000-000000000005', 'platform_content_admin', 'ผู้ดูแลเนื้อหา',           'platform', false, 'จัดการเนื้อหาหน้าเว็บ'),
-  ('c1000000-0000-4000-8000-000000000006', 'coach',                  'โค้ช',                    'platform', true,  'บัญชีโค้ชแยกจากแอดมิน (ข้อ 30)'),
-  ('c1000000-0000-4000-8000-000000000007', 'member',                 'ผู้ใช้ทั่วไป',              'platform', true,  'ทุกบัญชีได้รับเมื่อสมัคร ใช้ของของตัวเองได้'),
-  ('c1000000-0000-4000-8000-000000000011', 'org_admin',              'ผู้ดูแลองค์กร',             'organization', true, 'จัดการสมาชิก seat โครงสร้าง และนักเรียน'),
-  ('c1000000-0000-4000-8000-000000000012', 'org_executive',          'ผู้บริหาร',                'organization', true, 'เห็นข้อมูลรวมเท่านั้น ไม่เห็น reflection และ coach feedback (ข้อ 31)'),
-  ('c1000000-0000-4000-8000-000000000013', 'org_teacher',            'ครู',                     'organization', true, 'ดูและจัดการนักเรียนขององค์กร');
-
-INSERT INTO role_permissions (role_id, permission_code)
-SELECT r.id, p.code
-FROM roles r JOIN permissions p ON
-  (r.code = 'platform_super_admin'   AND p.code LIKE 'admin.%' AND NOT p.is_sensitive)
-  OR (r.code = 'platform_data_steward'  AND (p.code LIKE 'admin.sensitive.%' OR p.code IN ('admin.impersonate', 'admin.audit.view')))
-  OR (r.code = 'platform_support_admin' AND p.code IN ('admin.users.view', 'admin.organizations.view', 'admin.ai_jobs.view'))
-  OR (r.code = 'platform_finance_admin' AND p.code IN ('admin.payments.verify', 'admin.seats.grant', 'admin.organizations.view'))
-  OR (r.code = 'platform_content_admin' AND p.code = 'admin.content.manage')
-  OR (r.code = 'coach'                  AND p.code LIKE 'coach.%')
-  OR (r.code = 'member'                 AND p.code LIKE 'self.%')
-  OR (r.code = 'org_admin'              AND p.code LIKE 'org.%')
-  OR (r.code = 'org_executive'          AND p.code = 'org.dashboard.view_aggregate')
-  OR (r.code = 'org_teacher'            AND p.code IN ('org.students.view', 'org.students.manage'));
-
--- ทุกบัญชีได้บทบาท member
-INSERT INTO role_assignments (user_id, role_id, role_scope, granted_by)
-SELECT id, 'c1000000-0000-4000-8000-000000000007', 'platform', 'a1000000-0000-4000-8000-000000000001' FROM users;
-
-INSERT INTO role_assignments (user_id, role_id, role_scope, organization_id, granted_by) VALUES
-  ('a1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'platform', NULL, NULL),
-  ('a1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000002', 'platform', NULL, NULL),
-  ('a1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000004', 'platform', NULL, NULL),
-  ('a1000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000003', 'platform', NULL, 'a1000000-0000-4000-8000-000000000001'),
-  ('a1000000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000006', 'platform', NULL, 'a1000000-0000-4000-8000-000000000001'),
-  ('a1000000-0000-4000-8000-000000000004', 'c1000000-0000-4000-8000-000000000011', 'organization', 'b1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001'),
-  ('a1000000-0000-4000-8000-000000000004', 'c1000000-0000-4000-8000-000000000013', 'organization', 'b1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001'),
-  ('a1000000-0000-4000-8000-000000000005', 'c1000000-0000-4000-8000-000000000013', 'organization', 'b1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004'),
-  ('a1000000-0000-4000-8000-000000000006', 'c1000000-0000-4000-8000-000000000012', 'organization', 'b1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001');
-
-INSERT INTO invitations (id, organization_id, email, role_id, token_hash, invited_by, expires_at, accepted_at, accepted_by, created_at) VALUES
-  -- คำเชิญที่ครูประวิทย์รับแล้ว
-  ('9b000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'prawit@example.com', 'c1000000-0000-4000-8000-000000000013',
-   sha256('mock-invite-0001'::bytea), 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-33, '09:00'),
-   pg_temp.ts(-40, '09:00'), 'a1000000-0000-4000-8000-000000000005', pg_temp.ts(-41, '15:00')),
-  -- คำเชิญที่ยังไม่มีใครรับ
-  ('9b000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000001', 'new.teacher@example.com', 'c1000000-0000-4000-8000-000000000013',
-   sha256('mock-invite-0002'::bytea), 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(6, '09:00'),
-   NULL, NULL, pg_temp.ts(-1, '09:00'));
+INSERT INTO addresses (user_id, recipient_name, phone, address_line, subdistrict, district, province, postal_code, is_default) VALUES
+  ('a1000000-0000-4000-8000-000000000003', 'มะลิ ใจดี',  '0810000003', '99/1 หมู่ 2', 'ตำบลตัวอย่าง', 'อำเภอตัวอย่าง', 'เชียงใหม่', '50000', true),
+  ('a1000000-0000-4000-8000-000000000005', 'ต้น รักเรียน', '0810000005', '12 ซอยตัวอย่าง', 'แขวงตัวอย่าง', 'เขตตัวอย่าง', 'กรุงเทพมหานคร', '10100', true),
+  ('a1000000-0000-4000-8000-000000000006', 'แก้ว ใสสะอาด', '0810000006', '45 ถนนตัวอย่าง', 'ตำบลตัวอย่าง', 'อำเภอตัวอย่าง', 'ขอนแก่น', '40000', true);
 
 
 -- -----------------------------------------------------------------------------
--- 4. ไฟล์ (private โดยค่าเริ่มต้น)
+-- 3. สถานศึกษา โรงเรียน และทีมงาน
 -- -----------------------------------------------------------------------------
 
-INSERT INTO files (id, owner_user_id, organization_id, storage_bucket, storage_key, original_name, mime_type, size_bytes, access_level, contains_student_data) VALUES
-  ('91000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'skillwise-private', 'evidence/mock-0001.jpg', 'วงสนทนาเช้า.jpg', 'image/jpeg', 245760, 'private', true),
-  ('91000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000005', 'b1000000-0000-4000-8000-000000000001', 'skillwise-private', 'evidence/mock-0002.jpg', 'เวทีนำเสนอ.jpg', 'image/jpeg', 312400, 'private', true),
-  ('91000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'skillwise-private', 'billing/slip-mock-0001.png', 'สลิปโอนเงิน.png', 'image/png', 88000, 'private', false),
-  ('91000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000001', NULL, 'skillwise-public', 'content/cover-mock-0001.jpg', 'cover.jpg', 'image/jpeg', 150000, 'public', false),
-  ('91000000-0000-4000-8000-000000000005', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'skillwise-private', 'documents/plan-mock-0001.pdf', 'แผนพัฒนา.pdf', 'application/pdf', 420000, 'private', false),
-  ('91000000-0000-4000-8000-000000000006', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'skillwise-private', 'org/logo-mock-0001.png', 'โลโก้.png', 'image/png', 32000, 'organization', false);
+INSERT INTO schools_directory (id, name, school_type, province, district, affiliation, source, status, added_by) VALUES
+  ('b1000000-0000-4000-8000-000000000001', 'โรงเรียนบ้านทุ่งตัวอย่าง',     'ประถมศึกษา',   'เชียงใหม่', 'อำเภอตัวอย่าง', 'สพป. ตัวอย่าง', 'public_list', 'verified', NULL),
+  ('b1000000-0000-4000-8000-000000000002', 'โรงเรียนเมืองตัวอย่างวิทยา',   'มัธยมศึกษา',  'ขอนแก่น',   'อำเภอเมือง',   'สพม. ตัวอย่าง', 'public_list', 'verified', NULL),
+  ('b1000000-0000-4000-8000-000000000003', 'โรงเรียนท่าน้ำตัวอย่าง',       NULL,           'ขอนแก่น',   NULL,           NULL,            'user_added',  'pending',  'a1000000-0000-4000-8000-000000000006');
 
-UPDATE organizations SET logo_file_id = '91000000-0000-4000-8000-000000000006'
- WHERE id = 'b1000000-0000-4000-8000-000000000001';
-
-
--- -----------------------------------------------------------------------------
--- 5. สินค้า seat สิทธิ์ใช้งาน และการชำระเงิน  (ตัวเลขทั้งหมดเป็นค่าตัวอย่าง ราคาและโควตายัง OPEN)
--- -----------------------------------------------------------------------------
-
-INSERT INTO features (code, description, unit) VALUES
-  ('tool.canvas',        'ใช้ Unlock Hidden Potential Canvas', NULL),
-  ('ai.canvas_feedback', 'ให้ AI ช่วยให้ feedback ต่อ Canvas', 'job'),
-  ('ai.plan_synthesis',  'ให้ AI สังเคราะห์ Canvas เป็นแผนพัฒนา', 'job'),
-  ('coaching.feedback',  'รับ coach feedback', 'thread'),
-  ('export.plan_pdf',    'export แผนเป็น PDF', NULL);
-
-INSERT INTO products (id, code, name, product_type) VALUES
-  ('d1000000-0000-4000-8000-000000000001', 'teacher_seat_annual_mock', 'SkillWise Teacher Seat (ตัวอย่าง)', 'seat_subscription'),
-  ('d1000000-0000-4000-8000-000000000002', 'ai_credit_pack_mock',      'เครดิต AI เพิ่มเติม (ตัวอย่าง)',     'credit_pack');
-
-INSERT INTO product_features (product_id, feature_code, quota, quota_period) VALUES
-  ('d1000000-0000-4000-8000-000000000001', 'tool.canvas',        NULL, NULL),
-  ('d1000000-0000-4000-8000-000000000001', 'ai.canvas_feedback', 20,   'month'),
-  ('d1000000-0000-4000-8000-000000000001', 'ai.plan_synthesis',  2,    'year'),
-  ('d1000000-0000-4000-8000-000000000001', 'coaching.feedback',  4,    'month'),
-  ('d1000000-0000-4000-8000-000000000001', 'export.plan_pdf',    NULL, NULL),
-  ('d1000000-0000-4000-8000-000000000002', 'ai.plan_synthesis',  5,    'lifetime');
-
--- [Should] โรงเรียนซื้อชุด 10 seat ด้วยการโอนเงิน แอดมินการเงินยืนยันสลิป
-INSERT INTO billing_profiles (id, organization_id, billing_name, tax_id, branch_code, billing_address, email) VALUES
-  ('93000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'โรงเรียนตัวอย่างวิทยา (สมมติ)',
-   '0000000000000', '00000', '99 ถนนตัวอย่าง อำเภอเมือง จังหวัดนครราชสีมา 30000', 'finance@example.com');
-
-INSERT INTO orders (id, order_no, billing_profile_id, buyer_user_id, status, subtotal, vat_amount, total, invoice_no, invoiced_at, due_at) VALUES
-  ('94000000-0000-4000-8000-000000000001', 'SW-MOCK-0001', '93000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004',
-   'paid', 10000.00, 700.00, 10700.00, 'INV-MOCK-0001', pg_temp.ts(-35, '10:00'), pg_temp.ts(-20, '23:59'));
-
-INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, description) VALUES
-  ('95000000-0000-4000-8000-000000000001', '94000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 10, 1000.00, 'Set Package 10 seat (ราคาตัวอย่าง)');
-
-INSERT INTO payments (id, order_id, method, amount, status, slip_file_id, paid_at, verified_by, verified_at, created_by) VALUES
-  ('96000000-0000-4000-8000-000000000001', '94000000-0000-4000-8000-000000000001', 'bank_transfer', 10700.00, 'verified',
-   '91000000-0000-4000-8000-000000000003', pg_temp.ts(-33, '11:20'), 'a1000000-0000-4000-8000-000000000001', pg_temp.ts(-32, '09:15'),
+INSERT INTO organizations (id, org_type, school_directory_id, name, billing_name, tax_id, tax_branch, billing_address, created_by) VALUES
+  ('b2000000-0000-4000-8000-000000000001', 'school', 'b1000000-0000-4000-8000-000000000002', 'โรงเรียนเมืองตัวอย่างวิทยา',
+   'โรงเรียนเมืองตัวอย่างวิทยา', '0994000000001', 'สำนักงานใหญ่', '1 ถนนตัวอย่าง อำเภอเมือง จังหวัดขอนแก่น 40000',
    'a1000000-0000-4000-8000-000000000004');
 
-INSERT INTO seat_pools (id, product_id, purchase_type, owner_organization_id, owner_user_id, seat_count, source, order_item_id, starts_at, ends_at, created_by) VALUES
-  ('d2000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'set', 'b1000000-0000-4000-8000-000000000001', NULL,
-   10, 'purchase', '95000000-0000-4000-8000-000000000001', pg_temp.ts(-32, '00:00'), pg_temp.ts(333, '00:00'), 'a1000000-0000-4000-8000-000000000001'),
-  -- ครูอิสระทดลองใช้ 30 วัน
-  ('d2000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-000000000001', 'individual', NULL, 'a1000000-0000-4000-8000-000000000007',
-   1, 'trial', NULL, pg_temp.ts(-10, '00:00'), pg_temp.ts(20, '00:00'), 'a1000000-0000-4000-8000-000000000001');
+INSERT INTO org_memberships (organization_id, user_id, role, status, joined_at) VALUES
+  ('b2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'owner', 'active', pg_temp.ts(-25, '13:05'));
 
-INSERT INTO seat_assignments (id, seat_pool_id, user_id, assigned_by, assigned_at) VALUES
-  ('d3000000-0000-4000-8000-000000000001', 'd2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-32, '10:00')),
-  ('d3000000-0000-4000-8000-000000000002', 'd2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000005', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-32, '10:05')),
-  ('d3000000-0000-4000-8000-000000000003', 'd2000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000007', 'a1000000-0000-4000-8000-000000000001', pg_temp.ts(-10, '09:00'));
+INSERT INTO staff_roles (code, name, description) VALUES
+  ('packing',    'ฝ่ายแพ็กของ', 'แพ็กและส่งของ บันทึกรหัสในกล่องและเลขพัสดุ'),
+  ('accounting', 'ฝ่ายบัญชี',   'ตรวจเงิน ออกเอกสารการเงิน คืนเงิน ตรวจยอด'),
+  ('training',   'ฝ่ายอบรม',    'จัดรอบอบรม ที่นั่ง คิวสำรอง เช็กชื่อ'),
+  ('content',    'ฝ่ายเนื้อหา',  'แม่แบบข้อความและเนื้อหาหน้าเว็บ'),
+  ('admin',      'ผู้ดูแลระบบ',  'แพ็กเกจ สิทธิ์ รหัสในกล่อง ผู้ใช้ และค่าตั้งระบบ');
 
-INSERT INTO entitlements (id, user_id, product_id, organization_id, source, seat_assignment_id, starts_at, ends_at, granted_by) VALUES
-  ('d4000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'd1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'seat', 'd3000000-0000-4000-8000-000000000001', pg_temp.ts(-32, '10:00'), pg_temp.ts(333, '00:00'), 'a1000000-0000-4000-8000-000000000004'),
-  ('d4000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000005', 'd1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'seat', 'd3000000-0000-4000-8000-000000000002', pg_temp.ts(-32, '10:05'), pg_temp.ts(333, '00:00'), 'a1000000-0000-4000-8000-000000000004'),
-  ('d4000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000007', 'd1000000-0000-4000-8000-000000000001', NULL, 'seat', 'd3000000-0000-4000-8000-000000000003', pg_temp.ts(-10, '09:00'), pg_temp.ts(20, '00:00'), 'a1000000-0000-4000-8000-000000000001');
+INSERT INTO staff_role_permissions (role_code, permission) VALUES
+  ('packing',    'orders.view'), ('packing', 'orders.pack'), ('packing', 'shipments.create'),
+  ('accounting', 'orders.view'), ('accounting', 'payments.verify'), ('accounting', 'refunds.request'),
+  ('accounting', 'refunds.approve'), ('accounting', 'documents.issue'), ('accounting', 'quotations.followup'),
+  ('accounting', 'reconciliation.resolve'), ('accounting', 'pii.view'),
+  ('training',   'events.manage'), ('training', 'seats.manage'), ('training', 'seats.check_in'),
+  ('content',    'templates.manage'),
+  ('admin',      'plans.manage'), ('admin', 'grants.create'), ('admin', 'codes.manage'), ('admin', 'codes.transfer'),
+  ('admin',      'codes.reexport'), ('admin', 'users.view'), ('admin', 'schools.merge'), ('admin', 'settings.manage'),
+  ('admin',      'audit.view'), ('admin', 'pii.view');
 
+INSERT INTO staff_members (user_id, two_factor_enabled_at) VALUES
+  ('a1000000-0000-4000-8000-000000000011', pg_temp.ts(-90, '09:10')),
+  ('a1000000-0000-4000-8000-000000000012', pg_temp.ts(-90, '09:10')),
+  ('a1000000-0000-4000-8000-000000000013', pg_temp.ts(-90, '09:10')),
+  ('a1000000-0000-4000-8000-000000000014', pg_temp.ts(-90, '09:10'));
 
--- -----------------------------------------------------------------------------
--- 6. นักเรียน (ชื่อสมมติทั้งหมด) · pseudonym_key ตั้งตายตัวให้อ่านตัวอย่างง่าย
--- -----------------------------------------------------------------------------
-
--- งาน import ที่จบแล้ว ไฟล์ต้นฉบับถูกลบตามกำหนด จึงไม่มี file_id
-INSERT INTO import_jobs (id, organization_id, requested_by, import_type, file_id, status, total_rows, imported_rows, error_rows, row_errors, created_at, finished_at, expires_at) VALUES
-  ('9c000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'students', NULL, 'completed', 5, 4, 1,
-   '[{"row": 6, "column": "classroom", "message": "ไม่พบห้อง ป.4/3 ในองค์กร"}]',
-   pg_temp.ts(-150, '10:00'), pg_temp.ts(-150, '10:02'), pg_temp.ts(-143, '10:00'));
-
-INSERT INTO students (id, organization_id, first_name, last_name, nickname, pseudonym_key, source, created_by) VALUES
-  ('e1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'ภูมิ',      'สมมติหนึ่ง', 'ภูมิ',   'S-MOCK0001', 'manual', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000001', 'ใบเฟิร์น',  'สมมติสอง',  'เฟิร์น', 'S-MOCK0002', 'manual', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000003', 'b1000000-0000-4000-8000-000000000001', 'ต้นกล้า',   'สมมติสาม',  'กล้า',   'S-MOCK0003', 'manual', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'น้ำใส',     'สมมติสี่',   'ใส',     'S-MOCK0004', 'manual', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000005', 'b1000000-0000-4000-8000-000000000001', 'ธันวา',     'สมมติห้า',   'ธัน',    'S-MOCK0005', 'manual', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000006', 'b1000000-0000-4000-8000-000000000001', 'พิมพ์ชนก',  'สมมติหก',   'พิมพ์',  'S-MOCK0006', 'manual', 'a1000000-0000-4000-8000-000000000004'),
-  -- 4 คนหลังมาจากการ import Excel
-  ('e1000000-0000-4000-8000-000000000007', 'b1000000-0000-4000-8000-000000000001', 'กันต์',     'สมมติเจ็ด',  'กันต์',  'S-MOCK0007', 'import', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000008', 'b1000000-0000-4000-8000-000000000001', 'ขวัญข้าว',  'สมมติแปด',  'ข้าว',   'S-MOCK0008', 'import', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000009', 'b1000000-0000-4000-8000-000000000001', 'ปัณณ์',     'สมมติเก้า',  'ปัณณ์',  'S-MOCK0009', 'import', 'a1000000-0000-4000-8000-000000000004'),
-  ('e1000000-0000-4000-8000-000000000010', 'b1000000-0000-4000-8000-000000000001', 'มะลิ',      'สมมติสิบ',   'มะลิ',   'S-MOCK0010', 'import', 'a1000000-0000-4000-8000-000000000004');
-
-UPDATE students SET import_job_id = '9c000000-0000-4000-8000-000000000001' WHERE source = 'import';
-
-INSERT INTO student_enrollments (student_id, org_unit_id, organization_id, starts_on, created_by)
-SELECT s.id,
-       CASE WHEN s.pseudonym_key <= 'S-MOCK0006' THEN 'b2000000-0000-4000-8000-000000000002'::uuid
-            ELSE 'b2000000-0000-4000-8000-000000000003'::uuid END,
-       s.organization_id, pg_temp.d(-160), s.created_by
-FROM students s;
--- นักเรียนคนหนึ่งอยู่ทั้งห้องและชมรม
-INSERT INTO student_enrollments (student_id, org_unit_id, organization_id, starts_on, created_by) VALUES
-  ('e1000000-0000-4000-8000-000000000003', 'b2000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', pg_temp.d(-120), 'a1000000-0000-4000-8000-000000000005');
+INSERT INTO staff_member_roles (user_id, role_code, granted_by) VALUES
+  ('a1000000-0000-4000-8000-000000000011', 'packing',    'a1000000-0000-4000-8000-000000000014'),
+  ('a1000000-0000-4000-8000-000000000012', 'accounting', 'a1000000-0000-4000-8000-000000000014'),
+  ('a1000000-0000-4000-8000-000000000013', 'training',   'a1000000-0000-4000-8000-000000000014'),
+  ('a1000000-0000-4000-8000-000000000013', 'content',    'a1000000-0000-4000-8000-000000000014'),
+  ('a1000000-0000-4000-8000-000000000014', 'admin',      'a1000000-0000-4000-8000-000000000014');
 
 
 -- -----------------------------------------------------------------------------
--- 7. Tool: Unlock Hidden Potential Canvas เป็นข้อมูล (ข้อ 7, 45)
---    น้ำหนักคะแนนรายช่องมาจากระบบเดิม · ใช้เป็นเงื่อนไขบังคับหรือไม่ยัง OPEN (study หัวข้อ 9 ข้อ 1)
+-- 4. สิทธิ์ เครดิต และแพ็กเกจ (system-plan 5.2–5.3 · ตัวเลขเป็นค่าตัวอย่าง)
 -- -----------------------------------------------------------------------------
 
-INSERT INTO tools (id, code, name, description) VALUES
-  ('f1000000-0000-4000-8000-000000000001', 'uhp_canvas', 'Unlock Hidden Potential Canvas', 'Thinking Framework ของครู ไม่ใช่แค่ฟอร์ม (ข้อ 7)');
+INSERT INTO entitlement_defs (code, name, value_type, combine_rule, description) VALUES
+  ('pro',                   'สมาชิก Pro',                     'flag',    NULL,  'ใช้แสดงป้าย Pro และเป็นเงื่อนไขกว้าง ๆ'),
+  ('classroom.limit',       'จำนวนห้องเรียนพื้นฐาน',          'number',  'max', 'ฟรี 1 · Pro ไม่จำกัด (Phase 2)'),
+  ('classroom.bonus',       'ห้องเรียนเพิ่มจากสมุด',           'number',  'sum', 'บวกเพิ่มจากค่าพื้นฐาน (Phase 3)'),
+  ('course.intro',          'คอร์สบทแรก + เกียรติบัตร',        'flag',    NULL,  'Phase 2'),
+  ('course.all',            'คอร์สออนไลน์ทุกบท',               'flag',    NULL,  'Phase 2'),
+  ('media.sample',          'บทสื่อตัวอย่าง',                  'flag',    NULL,  'Phase 3'),
+  ('media.all',             'บทสื่อทุกบท + PDF',               'flag',    NULL,  'Phase 3'),
+  ('portfolio.export',      'ส่งออกแฟ้มผลงานเป็น PDF',         'flag',    NULL,  'Phase 2'),
+  ('seat.free_zoom',        'จองที่นั่ง onZoom ฟรีได้',         'flag',    NULL,  'ยังต้องผ่านเงื่อนไขบทเรียน (Phase 2)'),
+  ('discount.workshop.pro', 'ส่วนลดเวิร์กช็อปของ Pro',         'percent', 'max', 'ใช้ได้ทุกครั้งกับกองที่นั่งที่รับส่วนลดนี้'),
+  ('cards.teacher_edition', 'คู่มือครูการ์ดจับดีฉบับเต็ม',      'flag',    NULL,  'PDF ใส่ชื่อครูทุกหน้า (Phase 1)'),
+  ('cards.video',           'วิดีโอสาธิตการ์ดจับดี',            'flag',    NULL,  'Phase 1'),
+  ('school.reports',        'รายงานโรงเรียน',                  'flag',    NULL,  'Phase 3'),
+  ('school.share_external', 'แชร์ให้ผู้ชมภายนอก',              'flag',    NULL,  'Phase 3'),
+  ('school.growth_day',     'วันเด็กเล่าการเติบโต',            'flag',    NULL,  'Phase 5');
+-- game.access ยังไม่สร้างจนกว่าเกมพร้อม (Context ข้อ 60.13.3)
 
-INSERT INTO tool_versions (id, tool_id, version, settings, published_at) VALUES
-  ('f2000000-0000-4000-8000-000000000001', 'f1000000-0000-4000-8000-000000000001', 1,
-   '{"readiness": {"min_total_score": 7, "min_field_scores": {"potential": 1.5}, "enforced": false, "note": "เป็นเงื่อนไขบังคับหรือไม่ยัง OPEN"},
-     "synthesis": {"max_canvases": 5, "note": "ค่าจากระบบเดิม ปรับได้ (ข้อ 13)"},
-     "plan_sections": [{"key": "context", "title": "บริบทและประเด็นท้าทาย"}, {"key": "goals", "title": "เป้าหมายการพัฒนา"},
-                       {"key": "methods", "title": "วิธีดำเนินงาน"}, {"key": "measures", "title": "การวัดผล"}]}',
-   pg_temp.ts(-90, '00:00'));
+INSERT INTO credit_types (code, name, once_per_holder, description) VALUES
+  ('coach_session',   'รอบปรึกษาโค้ช AI',                 false, '1 รอบ = 1 Canvas ไม่เกินราว 30 ข้อความ'),
+  ('canvas_analysis', 'วิเคราะห์ Canvas',                  false, NULL),
+  ('voucher.zoom30',  'คูปองลด 30% ที่นั่ง onZoom 1 ที่',    true,  'ของผู้ซื้อการ์ด ได้ครั้งเดียวต่อบัญชี (กติกา H)');
 
-INSERT INTO tool_fields (id, tool_version_id, field_key, label, help_text, sort_order, is_signal_field, max_score) VALUES
-  ('f3000000-0000-4000-8000-000000000001', 'f2000000-0000-4000-8000-000000000001', 'potential',   'ศักยภาพที่ต้องการปลดล็อก', 'เด็กขาดศักยภาพอะไร (Unlock view ไม่ใช่ Manage view)', 1, false, 2.0),
-  ('f3000000-0000-4000-8000-000000000002', 'f2000000-0000-4000-8000-000000000001', 'reason',      'ทำไมจึงเลือกศักยภาพนี้', 'ตรวจด้วยประโยค "ถ้า [เด็ก] มี [ศักยภาพ] จะทำให้ [ปัญหา] ลดลง"', 2, false, 1.5),
-  ('f3000000-0000-4000-8000-000000000003', 'f2000000-0000-4000-8000-000000000001', 'destination', 'ภาพปลายทาง', NULL, 3, false, 1.0),
-  ('f3000000-0000-4000-8000-000000000004', 'f2000000-0000-4000-8000-000000000001', 'routine',     'นิสัยเล็ก ๆ ที่ทำทุกวัน', 'Routine / Practice', 4, false, 1.5),
-  ('f3000000-0000-4000-8000-000000000005', 'f2000000-0000-4000-8000-000000000001', 'scaffolding', 'ครูเป็นนั่งร้าน', 'Scaffolding', 5, false, 1.5),
-  ('f3000000-0000-4000-8000-000000000006', 'f2000000-0000-4000-8000-000000000001', 'opportunity', 'สร้างโอกาสหรือเวทีให้ใช้', 'Systems of Opportunity', 6, false, 1.5),
-  ('f3000000-0000-4000-8000-000000000007', 'f2000000-0000-4000-8000-000000000001', 'signals',     'สัญญาณแห่งความสำเร็จ', 'สิ่งที่จับต้องได้ภายใน 1 เทอม เขียนข้อละบรรทัด', 7, true, 1.0);
+INSERT INTO plans (id, code, name, plan_type, is_active) VALUES
+  ('c1000000-0000-4000-8000-000000000001', 'free',               'สมาชิกฟรี',                 'free',         true),
+  ('c1000000-0000-4000-8000-000000000002', 'pro_yearly',         'Pro รายปี',                 'subscription', true),
+  ('c1000000-0000-4000-8000-000000000003', 'pro_monthly',        'Pro รายเดือน',              'subscription', true),
+  ('c1000000-0000-4000-8000-000000000004', 'card_box_code',      'รหัสในกล่องการ์ดจับดี',      'code',         true),
+  ('c1000000-0000-4000-8000-000000000005', 'card_buyer_voucher', 'คูปองผู้ซื้อการ์ด',          'bundle',       true),
+  ('c1000000-0000-4000-8000-000000000006', 'topup_coach_10',     'ชุดเติมโค้ช 10 รอบ',          'topup',        true),
+  ('c1000000-0000-4000-8000-000000000007', 'topup_analysis_10',  'ชุดเติมวิเคราะห์ 10 ครั้ง',    'topup',        true),
+  ('c1000000-0000-4000-8000-000000000008', 'journal_20',         'สมุดบันทึกความสุข 20 เล่มขึ้นไป', 'bundle',     true),
+  ('c1000000-0000-4000-8000-000000000009', 'school_package',     'แพ็กเกจโรงเรียน',            'org',          false);
 
+INSERT INTO plan_versions (id, plan_id, version, billing_cycle, available_from, created_by)
+SELECT ('c2000000-0000-4000-8000-00000000000' || n)::uuid, ('c1000000-0000-4000-8000-00000000000' || n)::uuid, 1,
+       CASE n WHEN 2 THEN 'year' WHEN 3 THEN 'month' ELSE 'once' END,
+       pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014'
+  FROM generate_series(1, 9) AS n;
 
--- -----------------------------------------------------------------------------
--- 8. Case และ Canvas
--- -----------------------------------------------------------------------------
+INSERT INTO plan_version_parts (id, plan_version_id, code, name, duration_months, start_condition) VALUES
+  ('c3000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001', 'main',    'สมาชิกฟรี',               NULL, NULL),
+  ('c3000000-0000-4000-8000-000000000002', 'c2000000-0000-4000-8000-000000000002', 'main',    'Pro 12 เดือน',            12,   NULL),
+  ('c3000000-0000-4000-8000-000000000003', 'c2000000-0000-4000-8000-000000000003', 'main',    'Pro 1 เดือน',             1,    NULL),
+  ('c3000000-0000-4000-8000-000000000004', 'c2000000-0000-4000-8000-000000000004', 'instant', 'ได้ทันที ไม่หมดอายุ',       NULL, NULL),
+  ('c3000000-0000-4000-8000-000000000005', 'c2000000-0000-4000-8000-000000000004', 'pro',     'Pro 3 เดือน',             3,    'pro_launch'),
+  ('c3000000-0000-4000-8000-000000000006', 'c2000000-0000-4000-8000-000000000005', 'main',    'คูปองผู้ซื้อการ์ด',         NULL, NULL),
+  ('c3000000-0000-4000-8000-000000000007', 'c2000000-0000-4000-8000-000000000006', 'main',    'เครดิตโค้ช 10 รอบ',        NULL, NULL),
+  ('c3000000-0000-4000-8000-000000000008', 'c2000000-0000-4000-8000-000000000007', 'main',    'เครดิตวิเคราะห์ 10 ครั้ง',  NULL, NULL),
+  ('c3000000-0000-4000-8000-000000000009', 'c2000000-0000-4000-8000-000000000008', 'main',    'ห้องเรียนเพิ่ม 1 ห้อง',     12,   NULL),
+  ('c3000000-0000-4000-8000-000000000010', 'c2000000-0000-4000-8000-000000000009', 'main',    'สิทธิ์ระดับโรงเรียน',       12,   NULL);
 
-INSERT INTO cases (id, owner_user_id, organization_id, title, situation, impact, scope, status, visibility, created_at) VALUES
-  ('f4000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'เด็กกลุ่มหนึ่งไม่กล้าถามเมื่อไม่เข้าใจ', 'นักเรียน 3 คนเงียบทุกครั้งที่ครูถามว่าใครไม่เข้าใจ แต่ทำแบบฝึกหัดผิดซ้ำ',
-   'งานค้างและเริ่มไม่อยากเรียนวิชาคณิต', 'group', 'in_practice', 'private', pg_temp.ts(-60, '15:00')),
-  ('f4000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'ห้อง ป.4/1 ส่งงานไม่ตรงเวลา', 'ครึ่งห้องส่งงานช้ากว่ากำหนดเกือบทุกสัปดาห์', 'ครูต้องตามงานจนไม่มีเวลาทำกิจกรรม',
-   'classroom', 'in_practice', 'organization', pg_temp.ts(-55, '15:00')),
-  -- ครูอิสระ: ไม่มีองค์กร จึงอธิบายกลุ่มด้วยข้อความ ไม่ใส่ชื่อนักเรียน
-  ('f4000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000007', NULL,
-   'นักเรียนกลุ่มเล็กเลิกกลางคันเมื่อเจอโจทย์ยาก', 'เด็ก 4 คนในชั้นเรียนพิเศษวางดินสอทันทีที่โจทย์เกิน 2 บรรทัด', NULL,
-   'group', 'open', 'private', pg_temp.ts(-8, '20:00'));
+-- สิทธิ์แบบ flag / ตัวเลข
+INSERT INTO plan_version_items (part_id, entitlement_code, entitlement_value, is_unlimited)
+SELECT part_id::uuid, code, value, unlimited
+  FROM (VALUES
+    -- สมาชิกฟรี
+    ('c3000000-0000-4000-8000-000000000001', 'classroom.limit',       1,    false),
+    ('c3000000-0000-4000-8000-000000000001', 'course.intro',          NULL, false),
+    ('c3000000-0000-4000-8000-000000000001', 'media.sample',          NULL, false),
+    -- Pro รายปี
+    ('c3000000-0000-4000-8000-000000000002', 'pro',                   NULL, false),
+    ('c3000000-0000-4000-8000-000000000002', 'classroom.limit',       NULL, true),
+    ('c3000000-0000-4000-8000-000000000002', 'course.all',            NULL, false),
+    ('c3000000-0000-4000-8000-000000000002', 'media.all',             NULL, false),
+    ('c3000000-0000-4000-8000-000000000002', 'portfolio.export',      NULL, false),
+    ('c3000000-0000-4000-8000-000000000002', 'seat.free_zoom',        NULL, false),
+    ('c3000000-0000-4000-8000-000000000002', 'discount.workshop.pro', 30,   false),
+    -- Pro รายเดือน: เหมือนรายปี ยกเว้น seat.free_zoom
+    ('c3000000-0000-4000-8000-000000000003', 'pro',                   NULL, false),
+    ('c3000000-0000-4000-8000-000000000003', 'classroom.limit',       NULL, true),
+    ('c3000000-0000-4000-8000-000000000003', 'course.all',            NULL, false),
+    ('c3000000-0000-4000-8000-000000000003', 'media.all',             NULL, false),
+    ('c3000000-0000-4000-8000-000000000003', 'portfolio.export',      NULL, false),
+    ('c3000000-0000-4000-8000-000000000003', 'discount.workshop.pro', 30,   false),
+    -- รหัสในกล่อง: ส่วนได้ทันที
+    ('c3000000-0000-4000-8000-000000000004', 'cards.video',           NULL, false),
+    ('c3000000-0000-4000-8000-000000000004', 'cards.teacher_edition', NULL, false),
+    -- รหัสในกล่อง: ส่วน Pro 3 เดือน (ไม่มี seat.free_zoom ตามที่แผนระบบตั้งไว้ รอยืนยัน)
+    ('c3000000-0000-4000-8000-000000000005', 'pro',                   NULL, false),
+    ('c3000000-0000-4000-8000-000000000005', 'classroom.limit',       NULL, true),
+    ('c3000000-0000-4000-8000-000000000005', 'course.all',            NULL, false),
+    ('c3000000-0000-4000-8000-000000000005', 'media.all',             NULL, false),
+    ('c3000000-0000-4000-8000-000000000005', 'portfolio.export',      NULL, false),
+    ('c3000000-0000-4000-8000-000000000005', 'discount.workshop.pro', 30,   false),
+    -- สมุดบันทึกความสุข
+    ('c3000000-0000-4000-8000-000000000009', 'classroom.bonus',       1,    false),
+    -- แพ็กเกจโรงเรียน
+    ('c3000000-0000-4000-8000-000000000010', 'school.reports',        NULL, false),
+    ('c3000000-0000-4000-8000-000000000010', 'school.share_external', NULL, false),
+    ('c3000000-0000-4000-8000-000000000010', 'school.growth_day',     NULL, false)
+  ) AS v (part_id, code, value, unlimited);
 
-INSERT INTO case_targets (case_id, organization_id, student_id, org_unit_id, label) VALUES
-  ('f4000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', NULL, NULL),
-  ('f4000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000002', NULL, NULL),
-  ('f4000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000003', NULL, NULL),
-  ('f4000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000001', NULL, 'b2000000-0000-4000-8000-000000000002', NULL),
-  ('f4000000-0000-4000-8000-000000000003', NULL, NULL, NULL, 'นักเรียน 4 คนในชั้นเรียนพิเศษวันเสาร์');
-
-INSERT INTO canvases (id, case_id, tool_version_id, author_user_id, status, created_at) VALUES
-  ('f5000000-0000-4000-8000-000000000001', 'f4000000-0000-4000-8000-000000000001', 'f2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'ready', pg_temp.ts(-58, '19:00')),
-  ('f5000000-0000-4000-8000-000000000002', 'f4000000-0000-4000-8000-000000000002', 'f2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'ready', pg_temp.ts(-54, '19:00')),
-  ('f5000000-0000-4000-8000-000000000003', 'f4000000-0000-4000-8000-000000000003', 'f2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000007', 'draft', pg_temp.ts(-7, '21:00'));
-
--- Canvas ใบแรกมี 2 revision: แก้หลังได้ feedback จาก AI
-INSERT INTO canvas_revisions (id, canvas_id, tool_version_id, revision_no, created_by, created_at) VALUES
-  ('f6000000-0000-4000-8000-000000000001', 'f5000000-0000-4000-8000-000000000001', 'f2000000-0000-4000-8000-000000000001', 1, 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-58, '19:30')),
-  ('f6000000-0000-4000-8000-000000000002', 'f5000000-0000-4000-8000-000000000001', 'f2000000-0000-4000-8000-000000000001', 2, 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-50, '20:10')),
-  ('f6000000-0000-4000-8000-000000000003', 'f5000000-0000-4000-8000-000000000002', 'f2000000-0000-4000-8000-000000000001', 1, 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-54, '19:40')),
-  ('f6000000-0000-4000-8000-000000000004', 'f5000000-0000-4000-8000-000000000003', 'f2000000-0000-4000-8000-000000000001', 1, 'a1000000-0000-4000-8000-000000000007', pg_temp.ts(-7, '21:30'));
-
-INSERT INTO canvas_field_values (canvas_revision_id, tool_version_id, tool_field_id, value_text)
-SELECT r.id, r.tool_version_id, f.id, v.value_text
-FROM (VALUES
-  -- revision 1 ของ Canvas ใบแรก
-  ('f6000000-0000-4000-8000-000000000001'::uuid, 'potential',   'ความกล้าแสดงออก'),
-  ('f6000000-0000-4000-8000-000000000001', 'reason',      'ถ้าน้องภูมิ น้องเฟิร์น และน้องกล้ากล้าพูด จะถามเมื่อไม่เข้าใจ'),
-  ('f6000000-0000-4000-8000-000000000001', 'destination', 'เด็กยกมือถาม'),
-  ('f6000000-0000-4000-8000-000000000001', 'routine',     'ให้ถามคำถามทุกวัน'),
-  ('f6000000-0000-4000-8000-000000000001', 'scaffolding', 'ครูคอยกระตุ้น'),
-  ('f6000000-0000-4000-8000-000000000001', 'opportunity', 'ให้ออกมาหน้าห้อง'),
-  ('f6000000-0000-4000-8000-000000000001', 'signals',     'ถามบ่อยขึ้น'),
-  -- revision 2: ครูปรับหลังอ่าน feedback
-  ('f6000000-0000-4000-8000-000000000002', 'potential',   'ความกล้าสื่อสารความต้องการของตัวเอง (Self-advocacy)'),
-  ('f6000000-0000-4000-8000-000000000002', 'reason',      'ถ้าน้องภูมิ น้องเฟิร์น และน้องกล้ากล้าบอกว่าตัวเองไม่เข้าใจตรงไหน จะได้รับความช่วยเหลือก่อนงานค้าง'),
-  ('f6000000-0000-4000-8000-000000000002', 'destination', 'เด็กบอกครูหรือเพื่อนได้เองว่าติดตรงไหน โดยไม่ต้องรอให้ครูถาม'),
-  ('f6000000-0000-4000-8000-000000000002', 'routine',     'วงสนทนาเช้า 10 นาที ทุกคนพูด 1 ประโยคว่าวันนี้อยากรู้อะไร'),
-  ('f6000000-0000-4000-8000-000000000002', 'scaffolding', 'การ์ดคำถามตั้งต้น + จับคู่บัดดี้ถามแทนกันในสัปดาห์แรก'),
-  ('f6000000-0000-4000-8000-000000000002', 'opportunity', 'เวทีนำเสนอวันศุกร์ ให้เล่าว่าสัปดาห์นี้ถามอะไรแล้วได้คำตอบอะไร'),
-  ('f6000000-0000-4000-8000-000000000002', 'signals',     E'ยกมือถามเองอย่างน้อยสัปดาห์ละ 1 ครั้ง\nบอกบัดดี้ได้ว่าติดโจทย์ข้อไหน\nส่งแบบฝึกหัดครบโดยไม่ต้องตาม'),
-  -- Canvas ใบที่สอง (ระดับห้อง)
-  ('f6000000-0000-4000-8000-000000000003', 'potential',   'การบริหารเวลาของตัวเอง (Self-management)'),
-  ('f6000000-0000-4000-8000-000000000003', 'reason',      'ถ้าเด็กห้อง ป.4/1 วางแผนเวลาเองได้ จะส่งงานตรงเวลาโดยไม่ต้องตาม'),
-  ('f6000000-0000-4000-8000-000000000003', 'destination', 'เด็กรู้ว่างานไหนต้องส่งเมื่อไร และแบ่งเวลาทำเอง'),
-  ('f6000000-0000-4000-8000-000000000003', 'routine',     'เช็กลิสต์งานประจำวันก่อนกลับบ้าน'),
-  ('f6000000-0000-4000-8000-000000000003', 'scaffolding', 'ตารางงานบนกระดานหลังห้อง + ครูถามคำถามชวนคิดแทนการเตือน'),
-  ('f6000000-0000-4000-8000-000000000003', 'opportunity', 'ให้หัวหน้ากลุ่มหมุนเวียนดูแลการส่งงานของกลุ่ม'),
-  ('f6000000-0000-4000-8000-000000000003', 'signals',     E'ส่งงานตรงเวลาเกิน 80% ของห้อง\nเด็กเตือนกันเองในกลุ่ม'),
-  -- Canvas ของครูอิสระ ยังเขียนไม่ครบ
-  ('f6000000-0000-4000-8000-000000000004', 'potential',   'ความพยายามไม่ยอมแพ้ (Grit)'),
-  ('f6000000-0000-4000-8000-000000000004', 'reason',      'ถ้าเด็กกลุ่มนี้มีความพยายามต่อโจทย์ยาก จะไม่วางดินสอกลางคัน'),
-  ('f6000000-0000-4000-8000-000000000004', 'destination', 'เด็กลองอย่างน้อย 2 วิธีก่อนขอความช่วยเหลือ')
-) AS v (revision_id, field_key, value_text)
-JOIN canvas_revisions r ON r.id = v.revision_id
-JOIN tool_fields f ON f.tool_version_id = r.tool_version_id AND f.field_key = v.field_key;
-
-
--- -----------------------------------------------------------------------------
--- 9. งาน AI · input_snapshot เก็บข้อมูลหลังแทนชื่อด้วย pseudonym_key แล้ว ไม่มีชื่อจริง (ข้อ 60.2)
--- -----------------------------------------------------------------------------
-
-INSERT INTO ai_jobs (id, job_type, requested_by, organization_id, status, attempts, input_snapshot, output, error_code, error_message,
-                     provider, model, prompt_version, input_tokens, output_tokens, cost_estimate, queued_at, started_at, finished_at) VALUES
-  -- feedback ต่อ Canvas ใบแรก revision 1: สำเร็จ
-  ('71000000-0000-4000-8000-000000000001', 'canvas_feedback', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'succeeded', 1,
-   '{"teacher": "T-1", "canvas_revision": "f6000000-0000-4000-8000-000000000001", "fields": {"reason": "ถ้า [S-MOCK0001] [S-MOCK0002] และ [S-MOCK0003] กล้าพูด จะถามเมื่อไม่เข้าใจ"}}',
-   '{"total_score": 6.5, "summary": "ศักยภาพยังกว้าง ลองระบุให้ชัดว่ากล้าพูดเรื่องอะไร"}', NULL, NULL,
-   'mock-provider', 'mock-model', 'canvas_feedback.v1', 1850, 620, 0.0450,
-   pg_temp.ts(-57, '20:00'), pg_temp.ts(-57, '20:00'), pg_temp.ts(-57, '20:01')),
-  -- สังเคราะห์แผนครั้งแรก: ล้มเหลว ไม่หักเครดิต
-  ('71000000-0000-4000-8000-000000000002', 'plan_synthesis', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'failed', 3,
-   '{"teacher": "T-1", "canvas_revisions": ["f6000000-0000-4000-8000-000000000002", "f6000000-0000-4000-8000-000000000003"]}',
-   NULL, 'synthesis_failed', 'AI สรุปแผนไม่สำเร็จ ระบบไม่หักเครดิต ลองใหม่ได้ทันที',
-   'mock-provider', 'mock-model', 'plan_synthesis.v1', 4200, NULL, 0.0300,
-   pg_temp.ts(-48, '19:00'), pg_temp.ts(-48, '19:00'), pg_temp.ts(-48, '19:06')),
-  -- สังเคราะห์แผนครั้งที่สอง: สำเร็จ
-  ('71000000-0000-4000-8000-000000000003', 'plan_synthesis', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'succeeded', 1,
-   '{"teacher": "T-1", "canvas_revisions": ["f6000000-0000-4000-8000-000000000002", "f6000000-0000-4000-8000-000000000003"]}',
-   '{"sections": 4, "blanks": 2}', NULL, NULL,
-   'mock-provider', 'mock-model', 'plan_synthesis.v1', 4300, 2100, 0.2800,
-   pg_temp.ts(-48, '19:10'), pg_temp.ts(-48, '19:10'), pg_temp.ts(-48, '19:12'));
--- งานของครูอิสระที่ยังรอคิว
-INSERT INTO ai_jobs (id, job_type, requested_by, status, input_snapshot, queued_at) VALUES
-  ('71000000-0000-4000-8000-000000000004', 'canvas_feedback', 'a1000000-0000-4000-8000-000000000007', 'queued',
-   '{"teacher": "T-1", "canvas_revision": "f6000000-0000-4000-8000-000000000004"}', pg_temp.ts(0, '07:00'));
-
-INSERT INTO ai_job_canvas_revisions (ai_job_id, canvas_revision_id) VALUES
-  ('71000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000001'),
-  ('71000000-0000-4000-8000-000000000002', 'f6000000-0000-4000-8000-000000000002'),
-  ('71000000-0000-4000-8000-000000000002', 'f6000000-0000-4000-8000-000000000003'),
-  ('71000000-0000-4000-8000-000000000003', 'f6000000-0000-4000-8000-000000000002'),
-  ('71000000-0000-4000-8000-000000000003', 'f6000000-0000-4000-8000-000000000003'),
-  ('71000000-0000-4000-8000-000000000004', 'f6000000-0000-4000-8000-000000000004');
-
-INSERT INTO canvas_feedbacks (id, canvas_revision_id, source, ai_job_id, author_user_id, total_score, summary, status, published_at, created_at) VALUES
-  ('f7000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000001', 'ai', '71000000-0000-4000-8000-000000000001', NULL,
-   6.5, 'ศักยภาพยังกว้าง ลองระบุให้ชัดว่ากล้าพูดเรื่องอะไร และให้สัญญาณความสำเร็จนับได้', 'published', pg_temp.ts(-57, '20:05'), pg_temp.ts(-57, '20:01')),
-  ('f7000000-0000-4000-8000-000000000002', 'f6000000-0000-4000-8000-000000000002', 'coach', NULL, 'a1000000-0000-4000-8000-000000000003',
-   NULL, 'revision นี้ชัดขึ้นมาก โดยเฉพาะการ์ดคำถามตั้งต้น', 'published', pg_temp.ts(-49, '18:00'), pg_temp.ts(-49, '18:00'));
-
-INSERT INTO canvas_feedback_items (canvas_feedback_id, tool_field_id, score, comment)
-SELECT 'f7000000-0000-4000-8000-000000000001', f.id, v.score, v.comment
-FROM (VALUES
-  ('potential', 1.0, 'ยังกว้าง ลองระบุว่ากล้าพูดเรื่องอะไร'),
-  ('reason', 1.0, NULL),
-  ('destination', 0.5, 'ภาพปลายทางควรเห็นพฤติกรรมชัดกว่านี้'),
-  ('routine', 1.0, NULL),
-  ('scaffolding', 1.0, 'ครูกระตุ้นอย่างไร ลองระบุเครื่องมือ'),
-  ('opportunity', 1.5, NULL),
-  ('signals', 0.5, 'สัญญาณควรนับได้')
-) AS v (field_key, score, comment)
-JOIN tool_fields f ON f.tool_version_id = 'f2000000-0000-4000-8000-000000000001' AND f.field_key = v.field_key;
-
-INSERT INTO canvas_feedback_items (canvas_feedback_id, tool_field_id, score, comment) VALUES
-  ('f7000000-0000-4000-8000-000000000002', 'f3000000-0000-4000-8000-000000000005', NULL, 'การ์ดคำถามตั้งต้นเป็นนั่งร้านที่ดี ลองค่อย ๆ ลดลงในสัปดาห์ที่ 4');
-
-INSERT INTO success_signals (id, canvas_id, source_revision_id, description, sort_order) VALUES
-  ('f8000000-0000-4000-8000-000000000001', 'f5000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000002', 'ยกมือถามเองอย่างน้อยสัปดาห์ละ 1 ครั้ง', 1),
-  ('f8000000-0000-4000-8000-000000000002', 'f5000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000002', 'บอกบัดดี้ได้ว่าติดโจทย์ข้อไหน', 2),
-  ('f8000000-0000-4000-8000-000000000003', 'f5000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000002', 'ส่งแบบฝึกหัดครบโดยไม่ต้องตาม', 3);
-
--- เครดิต AI: ลองฟรี 1 ครั้ง + โควตาตาม seat · งานที่ล้มเหลวไม่มีแถว usage
-INSERT INTO usage_ledger (user_id, feature_code, entitlement_id, delta, reason, ai_job_id, note, created_at) VALUES
-  ('a1000000-0000-4000-8000-000000000004', 'ai.plan_synthesis',  NULL, 1, 'trial_grant', NULL, 'ลองฟรี 1 ครั้ง', pg_temp.ts(-200, '09:00')),
-  ('a1000000-0000-4000-8000-000000000004', 'ai.plan_synthesis',  'd4000000-0000-4000-8000-000000000001', 2, 'quota_grant', NULL, 'โควตาตาม seat (ค่าตัวอย่าง)', pg_temp.ts(-32, '10:00')),
-  ('a1000000-0000-4000-8000-000000000004', 'ai.canvas_feedback', 'd4000000-0000-4000-8000-000000000001', 20, 'quota_grant', NULL, 'โควตารายเดือน (ค่าตัวอย่าง)', pg_temp.ts(-32, '10:00')),
-  ('a1000000-0000-4000-8000-000000000004', 'ai.canvas_feedback', 'd4000000-0000-4000-8000-000000000001', -1, 'usage', '71000000-0000-4000-8000-000000000001', NULL, pg_temp.ts(-57, '20:01')),
-  ('a1000000-0000-4000-8000-000000000004', 'ai.plan_synthesis',  'd4000000-0000-4000-8000-000000000001', -1, 'usage', '71000000-0000-4000-8000-000000000003', NULL, pg_temp.ts(-48, '19:12')),
-  ('a1000000-0000-4000-8000-000000000007', 'ai.plan_synthesis',  NULL, 1, 'trial_grant', NULL, 'ลองฟรี 1 ครั้ง', pg_temp.ts(-10, '09:00'));
+-- เครดิต
+INSERT INTO plan_version_items (part_id, credit_type_code, credit_amount, credit_refill, credit_valid_months)
+SELECT part_id::uuid, code, amount, refill, valid_months
+  FROM (VALUES
+    ('c3000000-0000-4000-8000-000000000001', 'coach_session',   2,  'once',    NULL),
+    ('c3000000-0000-4000-8000-000000000001', 'canvas_analysis', 2,  'once',    NULL),
+    ('c3000000-0000-4000-8000-000000000002', 'coach_session',   10, 'monthly', NULL),
+    ('c3000000-0000-4000-8000-000000000002', 'canvas_analysis', 5,  'monthly', NULL),
+    ('c3000000-0000-4000-8000-000000000003', 'coach_session',   10, 'monthly', NULL),
+    ('c3000000-0000-4000-8000-000000000003', 'canvas_analysis', 5,  'monthly', NULL),
+    ('c3000000-0000-4000-8000-000000000004', 'voucher.zoom30',  1,  'once',    12),
+    ('c3000000-0000-4000-8000-000000000005', 'coach_session',   10, 'monthly', NULL),
+    ('c3000000-0000-4000-8000-000000000005', 'canvas_analysis', 5,  'monthly', NULL),
+    ('c3000000-0000-4000-8000-000000000006', 'voucher.zoom30',  1,  'once',    12),
+    ('c3000000-0000-4000-8000-000000000007', 'coach_session',   10, 'once',    12),
+    ('c3000000-0000-4000-8000-000000000008', 'canvas_analysis', 10, 'once',    12)
+  ) AS v (part_id, code, amount, refill, valid_months);
 
 
 -- -----------------------------------------------------------------------------
--- 10. แผนพัฒนา: ร่างจาก AI (version 1) และฉบับที่ครูแก้ (version 2)
+-- 5. สินค้า ราคา และสต็อก (ราคาเป็นค่าตัวอย่าง เปลี่ยนแปลงได้)
 -- -----------------------------------------------------------------------------
 
-INSERT INTO development_plans (id, owner_user_id, organization_id, title, status, created_at) VALUES
-  ('72000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'แผนพัฒนาการสื่อสารความต้องการและการจัดการเวลา ป.4/1', 'active', pg_temp.ts(-48, '19:12'));
+INSERT INTO products (id, code, product_type, name, description, plan_id, tracks_stock, buyer_type, is_on_sale) VALUES
+  ('d1000000-0000-4000-8000-000000000001', 'cards_jabdee',      'physical',     'การ์ดจับดี',            '60 ใบ 4 หมวด 5 วิธีเล่น พร้อมรหัสในกล่อง', NULL, true, 'anyone', true),
+  ('d1000000-0000-4000-8000-000000000002', 'journal_happiness', 'physical',     'สมุดบันทึกความสุข',      'สำหรับโรงเรียน ขั้นต่ำ 20 เล่ม เปิดจอง มี.ค.–เม.ย. 2570',
+   'c1000000-0000-4000-8000-000000000008', true, 'organization', false),
+  ('d1000000-0000-4000-8000-000000000003', 'pro_yearly',        'subscription', 'Pro รายปี',              'เปิดขาย Phase 2', 'c1000000-0000-4000-8000-000000000002', false, 'anyone', false),
+  ('d1000000-0000-4000-8000-000000000004', 'pro_monthly',       'subscription', 'Pro รายเดือน',           'เปิดขาย Phase 2', 'c1000000-0000-4000-8000-000000000003', false, 'anyone', false),
+  ('d1000000-0000-4000-8000-000000000005', 'topup_coach_10',    'topup',        'ชุดเติมโค้ช 10 รอบ',      'เปิดขาย Phase 2', 'c1000000-0000-4000-8000-000000000006', false, 'anyone', false),
+  ('d1000000-0000-4000-8000-000000000006', 'topup_analysis_10', 'topup',        'ชุดเติมวิเคราะห์ 10 ครั้ง', 'เปิดขาย Phase 2', 'c1000000-0000-4000-8000-000000000007', false, 'anyone', false);
 
-INSERT INTO development_plan_versions (id, development_plan_id, version_no, source, ai_job_id, based_on_version_id, created_by, submitted_at, created_at) VALUES
-  ('73000000-0000-4000-8000-000000000001', '72000000-0000-4000-8000-000000000001', 1, 'ai', '71000000-0000-4000-8000-000000000003', NULL,
-   'a1000000-0000-4000-8000-000000000004', NULL, pg_temp.ts(-48, '19:12')),
-  ('73000000-0000-4000-8000-000000000002', '72000000-0000-4000-8000-000000000001', 2, 'teacher', NULL, '73000000-0000-4000-8000-000000000001',
-   'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-45, '20:00'), pg_temp.ts(-45, '19:30'));
+INSERT INTO prices (product_id, price_satang, min_quantity, valid_from, created_by) VALUES
+  ('d1000000-0000-4000-8000-000000000001', 50000, 1, pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014'),
+  ('d1000000-0000-4000-8000-000000000001', 45000, 5, pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014'),  -- ราคาชุดโรงเรียน [OPEN ค่าสมมติ]
+  ('d1000000-0000-4000-8000-000000000003', 99000, 1, pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014'),
+  ('d1000000-0000-4000-8000-000000000004', 20000, 1, pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014'),
+  ('d1000000-0000-4000-8000-000000000005', 9900,  1, pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014'),
+  ('d1000000-0000-4000-8000-000000000006', 9900,  1, pg_temp.ts(-90, '00:00'), 'a1000000-0000-4000-8000-000000000014');
 
-INSERT INTO development_plan_sections (plan_version_id, section_key, title, body, sort_order) VALUES
-  ('73000000-0000-4000-8000-000000000001', 'context', 'บริบทและประเด็นท้าทาย', 'เด็กบางส่วนไม่กล้าบอกว่าไม่เข้าใจ และครึ่งห้องส่งงานช้ากว่ากำหนด', 1),
-  ('73000000-0000-4000-8000-000000000001', 'goals',   'เป้าหมายการพัฒนา', 'ภายใน 8 สัปดาห์ นักเรียนเป้าหมายยกมือถามเองอย่างน้อย ____ ครั้งต่อสัปดาห์ และห้องส่งงานตรงเวลา ____%', 2),
-  ('73000000-0000-4000-8000-000000000001', 'methods', 'วิธีดำเนินงาน', 'วงสนทนาเช้า, บัดดี้ถามคำถาม, เวทีนำเสนอวันศุกร์, เช็กลิสต์งานประจำวัน', 3),
-  ('73000000-0000-4000-8000-000000000001', 'measures', 'การวัดผล', 'นับจำนวนครั้งที่ถามเองจากบันทึกรายสัปดาห์ และสัดส่วนงานที่ส่งตรงเวลา', 4),
-  ('73000000-0000-4000-8000-000000000002', 'context', 'บริบทและประเด็นท้าทาย', 'เด็กบางส่วนไม่กล้าบอกว่าไม่เข้าใจ และครึ่งห้องส่งงานช้ากว่ากำหนด', 1),
-  ('73000000-0000-4000-8000-000000000002', 'goals',   'เป้าหมายการพัฒนา', 'ภายใน 8 สัปดาห์ นักเรียนเป้าหมายยกมือถามเองอย่างน้อย 1 ครั้งต่อสัปดาห์ และห้องส่งงานตรงเวลา 80%', 2),
-  ('73000000-0000-4000-8000-000000000002', 'methods', 'วิธีดำเนินงาน', 'วงสนทนาเช้า (จ./พ./ศ.), บัดดี้ถามคำถาม (อ.), เวทีนำเสนอวันศุกร์ โดยครูประวิทย์ร่วมดูแล', 3),
-  ('73000000-0000-4000-8000-000000000002', 'measures', 'การวัดผล', 'นับจำนวนครั้งที่ถามเองจากบันทึกรายสัปดาห์ และสัดส่วนงานที่ส่งตรงเวลา', 4);
-
--- ครูเลือกใช้ฉบับที่ตัวเองแก้ (version 2)
-UPDATE development_plans SET current_version_id = '73000000-0000-4000-8000-000000000002'
- WHERE id = '72000000-0000-4000-8000-000000000001';
-
-INSERT INTO development_plan_canvases (plan_version_id, canvas_revision_id) VALUES
-  ('73000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000002'),
-  ('73000000-0000-4000-8000-000000000001', 'f6000000-0000-4000-8000-000000000003'),
-  ('73000000-0000-4000-8000-000000000002', 'f6000000-0000-4000-8000-000000000002'),
-  ('73000000-0000-4000-8000-000000000002', 'f6000000-0000-4000-8000-000000000003');
--- plan_reviews ว่างไว้: จะยังมีการตรวจผ่าน/ไม่ผ่านหรือไม่ยัง OPEN
+INSERT INTO inventory_movements (product_id, quantity, movement_type, note, created_by, created_at) VALUES
+  ('d1000000-0000-4000-8000-000000000001', 200, 'receive', 'รับการ์ดล็อตแรกจากโรงพิมพ์', 'a1000000-0000-4000-8000-000000000011', pg_temp.ts(-45, '10:00'));
 
 
 -- -----------------------------------------------------------------------------
--- 11. ชุดกิจวัตรและแผนลงมือทำ 8 สัปดาห์ (เริ่ม 17 วันก่อนวันที่รัน seed)
+-- 6. รหัสในกล่อง (รหัสทดสอบ ใช้จริงไม่ได้)
 -- -----------------------------------------------------------------------------
 
-INSERT INTO practice_sets (id, organization_id, name, description) VALUES
-  ('81000000-0000-4000-8000-000000000001', NULL, 'ชุดกิจวัตรตัวอย่างของ SkillWise (สมมติ)', 'ชุดกลางที่ทุกองค์กรเลือกใช้ได้'),
-  ('81000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000001', 'กิจวัตรของโรงเรียน (ตัวอย่าง)', 'องค์กรสร้างชุดของตัวเองได้');
+INSERT INTO code_batches (id, name, plan_version_id, quantity, created_by, created_at,
+                          exported_at, exported_by, boxed_at, boxed_by) VALUES
+  ('e1000000-0000-4000-8000-000000000001', 'การ์ดจับดี ล็อต 1 (ตัวอย่าง)', 'c2000000-0000-4000-8000-000000000004', 3,
+   'a1000000-0000-4000-8000-000000000014', pg_temp.ts(-60, '10:00'),
+   pg_temp.ts(-58, '10:00'), 'a1000000-0000-4000-8000-000000000014',
+   pg_temp.ts(-45, '10:00'), 'a1000000-0000-4000-8000-000000000011');
 
-INSERT INTO practice_templates (id, practice_set_id, name, description, default_recurrence_rule, sort_order) VALUES
-  ('82000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000001', 'วงสนทนาเช้า 10 นาที', 'ทุกคนพูด 1 ประโยค', 'FREQ=WEEKLY;BYDAY=MO,WE,FR', 1),
-  ('82000000-0000-4000-8000-000000000002', '81000000-0000-4000-8000-000000000001', 'บันทึกความรู้สึกหลังเลิกเรียน', NULL, 'FREQ=DAILY', 2),
-  ('82000000-0000-4000-8000-000000000003', '81000000-0000-4000-8000-000000000001', 'ชมเชยความพยายามรายวัน', NULL, 'FREQ=DAILY', 3),
-  ('82000000-0000-4000-8000-000000000004', '81000000-0000-4000-8000-000000000002', 'อ่านหนังสือหลังพักกลางวัน', NULL, 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 1);
+INSERT INTO redeem_codes (id, batch_id, code_hash, last4, created_at) VALUES
+  ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', pg_temp.code_hash('SKW-7Q2K-M4PA'), 'M4PA', pg_temp.ts(-60, '10:00')),
+  ('e2000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', pg_temp.code_hash('SKW-7Q2K-R8TE'), 'R8TE', pg_temp.ts(-60, '10:00')),
+  ('e2000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', pg_temp.code_hash('SKW-7Q2K-W6HN'), 'W6HN', pg_temp.ts(-60, '10:00'));
 
-INSERT INTO action_plans (id, plan_version_id, owner_user_id, organization_id, title, starts_on, ends_on, status, activated_at, created_at) VALUES
-  ('83000000-0000-4000-8000-000000000001', '73000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001',
-   'แผนลงมือทำ ป.4/1 รอบที่ 1', pg_temp.d(-17), pg_temp.d(-17 + 55), 'active', pg_temp.ts(-18, '20:00'), pg_temp.ts(-19, '20:00'));
-
-INSERT INTO action_plan_members (action_plan_id, user_id, member_role, acknowledged_at) VALUES
-  ('83000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'owner',      pg_temp.ts(-18, '20:00')),
-  ('83000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000005', 'co_teacher', pg_temp.ts(-18, '21:10'));
-
-INSERT INTO action_items (id, action_plan_id, item_type, practice_template_id, source_canvas_id, source_tool_field_id, title, expected_result, recurrence_rule, time_of_day, duration_minutes, reminder_offset_minutes, sort_order) VALUES
-  ('84000000-0000-4000-8000-000000000001', '83000000-0000-4000-8000-000000000001', 'routine',     '82000000-0000-4000-8000-000000000001', NULL, NULL,
-   'วงสนทนาเช้า 10 นาที', 'เด็กเป้าหมายพูดในวงได้เองโดยไม่ต้องเรียกชื่อ', 'FREQ=WEEKLY;BYDAY=MO,WE,FR', '08:00', 10, 30, 1),
-  ('84000000-0000-4000-8000-000000000002', '83000000-0000-4000-8000-000000000001', 'from_canvas', NULL, 'f5000000-0000-4000-8000-000000000001', 'f3000000-0000-4000-8000-000000000005',
-   'บัดดี้ถามคำถาม', 'เด็กบอกบัดดี้ได้ว่าติดตรงไหน', 'FREQ=WEEKLY;BYDAY=TU', '13:00', 20, 60, 2),
-  ('84000000-0000-4000-8000-000000000003', '83000000-0000-4000-8000-000000000001', 'custom',      NULL, NULL, NULL,
-   'เวทีนำเสนอวันศุกร์', NULL, 'FREQ=WEEKLY;BYDAY=FR', '14:00', 30, NULL, 3);
-
--- กิจกรรมทำครั้งเดียว: ไม่มี RRULE จึงต้องระบุวัน
-INSERT INTO action_items (id, action_plan_id, item_type, title, recurrence_rule, starts_on, time_of_day, duration_minutes, sort_order) VALUES
-  ('84000000-0000-4000-8000-000000000004', '83000000-0000-4000-8000-000000000001', 'custom',
-   'เชิญผู้ปกครองชมเวทีนำเสนอ', NULL, pg_temp.d(20), '14:00', 60, 4);
-
-INSERT INTO action_item_org_units (action_item_id, org_unit_id) VALUES
-  ('84000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000002'),
-  ('84000000-0000-4000-8000-000000000002', 'b2000000-0000-4000-8000-000000000002'),
-  ('84000000-0000-4000-8000-000000000003', 'b2000000-0000-4000-8000-000000000002'),
-  ('84000000-0000-4000-8000-000000000003', 'b2000000-0000-4000-8000-000000000004');
-
-INSERT INTO action_item_assignees (action_item_id, user_id) VALUES
-  ('84000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004'),
-  ('84000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000004'),
-  ('84000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000005'),
-  ('84000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000005'),
-  ('84000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000004');
-
-INSERT INTO practice_sessions (id, action_item_id, original_planned_at, planned_at, status) VALUES
-  ('85000000-0000-4000-8000-000000000001', '84000000-0000-4000-8000-000000000001', pg_temp.ts(-17, '08:00'), pg_temp.ts(-17, '08:00'), 'done'),
-  ('85000000-0000-4000-8000-000000000002', '84000000-0000-4000-8000-000000000002', pg_temp.ts(-16, '13:00'), pg_temp.ts(-16, '13:00'), 'done'),
-  ('85000000-0000-4000-8000-000000000003', '84000000-0000-4000-8000-000000000001', pg_temp.ts(-15, '08:00'), pg_temp.ts(-15, '08:00'), 'done'),
-  ('85000000-0000-4000-8000-000000000004', '84000000-0000-4000-8000-000000000001', pg_temp.ts(-13, '08:00'), pg_temp.ts(-13, '08:00'), 'done'),
-  ('85000000-0000-4000-8000-000000000005', '84000000-0000-4000-8000-000000000003', pg_temp.ts(-13, '14:00'), pg_temp.ts(-13, '14:00'), 'done'),
-  -- ครั้งนี้เลื่อนไปวันถัดไป
-  ('85000000-0000-4000-8000-000000000006', '84000000-0000-4000-8000-000000000001', pg_temp.ts(-10, '08:00'), pg_temp.ts(-9, '08:00'), 'postponed'),
-  ('85000000-0000-4000-8000-000000000007', '84000000-0000-4000-8000-000000000002', pg_temp.ts(-9, '13:00'),  pg_temp.ts(-9, '13:00'),  'planned'),
-  ('85000000-0000-4000-8000-000000000008', '84000000-0000-4000-8000-000000000001', pg_temp.ts(1, '08:00'),   pg_temp.ts(1, '08:00'),   'planned'),
-  ('85000000-0000-4000-8000-000000000009', '84000000-0000-4000-8000-000000000003', pg_temp.ts(2, '14:00'),   pg_temp.ts(2, '14:00'),   'planned');
+-- การ์ดใบนี้ชำรุดก่อนขาย ทีมงานยกเลิกรหัส
+UPDATE redeem_codes
+   SET cancelled_at = pg_temp.ts(-44, '11:00'), cancelled_by = 'a1000000-0000-4000-8000-000000000014',
+       cancel_reason = 'กล่องชำรุด ไม่ได้นำไปขาย'
+ WHERE id = 'e2000000-0000-4000-8000-000000000003';
 
 
 -- -----------------------------------------------------------------------------
--- 12. บันทึกการลงมือทำ
---     ปกติ trigger บังคับ recorded_at = เวลาปัจจุบัน · seed ปิด trigger ชั่วคราวเพื่อจำลองบันทึกในอดีต
---     ห้ามทำแบบนี้ในระบบจริง
+-- 7. อบรม
 -- -----------------------------------------------------------------------------
 
-ALTER TABLE practice_logs DISABLE TRIGGER practice_logs_system_time;
+INSERT INTO events (id, event_type, title, starts_at, ends_at, join_url, status, created_by) VALUES
+  ('f1000000-0000-4000-8000-000000000001', 'webinar', 'เวบินาร์ฟรี: รู้จักแนวคิด Unlock Potential',
+   pg_temp.ts(10, '19:00'), pg_temp.ts(10, '20:30'), 'https://zoom.example.com/webinar-1', 'published', 'a1000000-0000-4000-8000-000000000013'),
+  ('f1000000-0000-4000-8000-000000000002', 'zoom', 'เวิร์กช็อป onZoom รอบแรก',
+   pg_temp.ts(30, '09:00'), pg_temp.ts(30, '16:00'), 'https://zoom.example.com/workshop-1', 'published', 'a1000000-0000-4000-8000-000000000013');
 
-INSERT INTO practice_logs (id, action_item_id, practice_session_id, author_user_id, outcome, happened_on, recorded_at, note, channel) VALUES
-  ('86000000-0000-4000-8000-000000000001', '84000000-0000-4000-8000-000000000001', '85000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004',
-   'done', pg_temp.d(-17), pg_temp.ts(-17, '08:40'), 'ครั้งแรกเด็กเงียบ ครูเริ่มพูดก่อน น้องภูมิพูดตามได้ 1 ประโยค', 'web'),
-  ('86000000-0000-4000-8000-000000000002', '84000000-0000-4000-8000-000000000002', '85000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000004',
-   'done', pg_temp.d(-16), pg_temp.ts(-16, '14:00'), 'จับคู่บัดดี้ เฟิร์นถามแทนกล้าได้', 'web'),
-  -- บันทึกย้อนหลัง 2 วัน: is_backdated = true
-  ('86000000-0000-4000-8000-000000000003', '84000000-0000-4000-8000-000000000001', '85000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000004',
-   'done', pg_temp.d(-13), pg_temp.ts(-11, '19:00'), 'กล้ายกมือถามเองครั้งแรก', 'line'),
-  ('86000000-0000-4000-8000-000000000004', '84000000-0000-4000-8000-000000000001', '85000000-0000-4000-8000-000000000006', 'a1000000-0000-4000-8000-000000000004',
-   'postponed', pg_temp.d(-10), pg_temp.ts(-10, '07:30'), 'มีกิจกรรมหน้าเสาธง เลื่อนเป็นพรุ่งนี้', 'line'),
-  ('86000000-0000-4000-8000-000000000005', '84000000-0000-4000-8000-000000000003', '85000000-0000-4000-8000-000000000005', 'a1000000-0000-4000-8000-000000000005',
-   'done', pg_temp.d(-13), pg_temp.ts(-13, '15:00'), 'ตัวแทน 3 กลุ่มเล่าว่าสัปดาห์นี้ถามอะไร', 'web');
+INSERT INTO seat_pools (id, event_id, name, capacity, price_satang, required_entitlement_code,
+                        accepts_pro_discount, accepted_voucher_type, allocation,
+                        prerequisite_note, prerequisite_enforcement, prerequisite_deadline, booking_opens_at) VALUES
+  ('f2000000-0000-4000-8000-000000000001', 'f1000000-0000-4000-8000-000000000001', 'ที่นั่งเวบินาร์ฟรี', 300, 0,
+   NULL, false, NULL, 'first_come', NULL, 'none', NULL, pg_temp.ts(-14, '09:00')),
+  ('f2000000-0000-4000-8000-000000000002', 'f1000000-0000-4000-8000-000000000002', 'ที่นั่งจ่ายเงิน', 35, 90000,
+   NULL, true, 'voucher.zoom30', 'first_come',
+   'แนะนำให้เรียนบทออนไลน์ก่อนวันอบรม', 'warn', pg_temp.ts(27, '23:59'), pg_temp.ts(-14, '09:00')),
+  ('f2000000-0000-4000-8000-000000000003', 'f1000000-0000-4000-8000-000000000002', 'ที่นั่งฟรีสมาชิกรายปี (Phase 2)', 35, 0,
+   'seat.free_zoom', false, NULL, 'first_come',
+   'ต้องเรียนบทออนไลน์และผ่านแบบทดสอบก่อนเส้นตาย', 'forfeit', pg_temp.ts(23, '23:59'), pg_temp.ts(5, '09:00'));
 
-ALTER TABLE practice_logs ENABLE TRIGGER practice_logs_system_time;
-
--- แก้บันทึก 1 ครั้ง: trigger เก็บ revision 2 ให้อัตโนมัติ
-UPDATE practice_logs
-   SET note = 'จับคู่บัดดี้ เฟิร์นถามแทนกล้าได้ และกล้าพยักหน้าว่าเข้าใจแล้ว',
-       updated_by = 'a1000000-0000-4000-8000-000000000004'
- WHERE id = '86000000-0000-4000-8000-000000000002';
-
--- ครูประวิทย์ร่วมทำกิจกรรมบัดดี้ครั้งนี้ด้วย
-INSERT INTO practice_log_participants (practice_log_id, user_id, added_by, added_at) VALUES
-  ('86000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000005', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-16, '14:00'));
-
-INSERT INTO practice_log_students (id, practice_log_id, student_id, observation, added_by, added_at) VALUES
-  ('86100000-0000-4000-8000-000000000001', '86000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'พูดตามครูได้ 1 ประโยค', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-17, '08:40')),
-  ('86100000-0000-4000-8000-000000000002', '86000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000002', 'ถามแทนเพื่อนได้', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-16, '14:00')),
-  ('86100000-0000-4000-8000-000000000003', '86000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000003', NULL, 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-16, '14:00')),
-  ('86100000-0000-4000-8000-000000000004', '86000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000003', 'ยกมือถามเองครั้งแรก', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-11, '19:00'));
-
--- ครูแก้ข้อสังเกตของนักเรียน 1 คน: เอาแถวเดิมออก แล้วเพิ่มแถวใหม่ ประวัติจึงยังอยู่ครบ
-UPDATE practice_log_students
-   SET removed_at = pg_temp.ts(-15, '20:00'), removed_by = 'a1000000-0000-4000-8000-000000000004'
- WHERE id = '86100000-0000-4000-8000-000000000003';
-INSERT INTO practice_log_students (practice_log_id, student_id, observation, added_by, added_at) VALUES
-  ('86000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000003', 'พยักหน้าว่าเข้าใจหลังเพื่อนถามแทน', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-15, '20:00'));
-
-INSERT INTO practice_log_attachments (practice_log_id, kind, file_id, url, caption, sort_order, added_by, added_at) VALUES
-  ('86000000-0000-4000-8000-000000000001', 'image', '91000000-0000-4000-8000-000000000001', NULL, 'วงสนทนาเช้า', 1, 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-17, '08:45')),
-  ('86000000-0000-4000-8000-000000000005', 'image', '91000000-0000-4000-8000-000000000002', NULL, 'เวทีวันศุกร์', 1, 'a1000000-0000-4000-8000-000000000005', pg_temp.ts(-13, '15:05')),
-  ('86000000-0000-4000-8000-000000000005', 'link',  NULL, 'https://video.example.com/mock-0001', 'คลิปสั้น', 2, 'a1000000-0000-4000-8000-000000000005', pg_temp.ts(-13, '15:06'));
-
-INSERT INTO practice_log_signals (practice_log_id, success_signal_id, note, added_by, added_at) VALUES
-  ('86000000-0000-4000-8000-000000000002', 'f8000000-0000-4000-8000-000000000002', 'ผ่านบัดดี้', 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-16, '14:00')),
-  ('86000000-0000-4000-8000-000000000003', 'f8000000-0000-4000-8000-000000000001', NULL, 'a1000000-0000-4000-8000-000000000004', pg_temp.ts(-11, '19:00'));
+INSERT INTO seat_bookings (id, seat_pool_id, user_id, booked_by, status) VALUES
+  ('f3000000-0000-4000-8000-000000000001', 'f2000000-0000-4000-8000-000000000001',
+   'a1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', 'booked');
 
 
 -- -----------------------------------------------------------------------------
--- 13. Reflection และ Coaching
+-- 8. การได้สิทธิ์และเครดิตตอนสมัคร (สมาชิกฟรี: โค้ช 2 + วิเคราะห์ 2 ไม่หมดอายุ)
 -- -----------------------------------------------------------------------------
 
-INSERT INTO reflections (id, author_user_id, case_id, action_plan_id, body, created_at) VALUES
-  -- ส่วนตัว: ผู้บริหารไม่เห็น
-  ('87000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'f4000000-0000-4000-8000-000000000001', NULL,
-   'สัปดาห์แรกครูพูดเยอะเกินไป เด็กเลยรอให้ครูพูด สัปดาห์หน้าจะเงียบรอให้นานขึ้น', pg_temp.ts(-14, '20:30')),
-  -- ครูเลือกแชร์ชิ้นนี้ให้ผู้บริหาร
-  ('87000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000004', NULL, '83000000-0000-4000-8000-000000000001',
-   'ครบ 2 สัปดาห์ เด็กเริ่มถามกันเองมากขึ้น อยากขอเวลาวงสนทนาเช้าเพิ่มเป็น 15 นาที', pg_temp.ts(-3, '20:00'));
-
-INSERT INTO coach_assignments (id, coach_user_id, teacher_user_id, organization_id, case_id, starts_on, assigned_by) VALUES
-  ('88000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000004',
-   'b1000000-0000-4000-8000-000000000001', NULL, pg_temp.d(-52), 'a1000000-0000-4000-8000-000000000001');
-
-INSERT INTO coach_feedbacks (id, coach_assignment_id, teacher_user_id, author_user_id, parent_id, kind, canvas_revision_id, practice_log_id, body, created_at) VALUES
-  ('89000000-0000-4000-8000-000000000001', '88000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000003',
-   NULL, 'question', 'f6000000-0000-4000-8000-000000000002', NULL,
-   'ถ้าเด็กยังไม่พร้อมพูดในวง ครูมีทางเลือกอื่นให้เด็กสื่อสารไหม เช่น เขียนใส่การ์ด', pg_temp.ts(-49, '18:05')),
-  ('89000000-0000-4000-8000-000000000002', '88000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000004',
-   '89000000-0000-4000-8000-000000000001', 'reply', NULL, NULL,
-   'จะลองให้เขียนการ์ดก่อน แล้วค่อยอ่านออกเสียงในสัปดาห์ที่ 2', pg_temp.ts(-48, '21:00')),
-  ('89000000-0000-4000-8000-000000000003', '88000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000003',
-   NULL, 'next_practice', NULL, '86000000-0000-4000-8000-000000000003',
-   'สัปดาห์หน้าลองชมความพยายามที่กล้าถาม ไม่ใช่ชมคำตอบที่ถูก', pg_temp.ts(-10, '19:00'));
-
-INSERT INTO share_grants (owner_user_id, organization_id, audience, reflection_id, granted_at) VALUES
-  ('a1000000-0000-4000-8000-000000000004', 'b1000000-0000-4000-8000-000000000001', 'organization_managers',
-   '87000000-0000-4000-8000-000000000002', pg_temp.ts(-3, '20:05'));
+WITH g AS (
+  INSERT INTO grants (holder_user_id, plan_version_id, part_id, source_type, source_ref, source_batch_id, starts_at, created_at)
+  SELECT u.id, 'c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001',
+         'signup', u.id::text, gen_random_uuid(), u.created_at, u.created_at
+    FROM users u
+   WHERE u.id IN (SELECT user_id FROM user_roles WHERE role = 'teacher')
+  RETURNING id, holder_user_id, starts_at
+)
+INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, grant_id, created_at)
+SELECT g.holder_user_id, i.credit_type_code, 'grant', i.credit_amount, g.id, g.starts_at
+  FROM g
+  JOIN plan_version_items i ON i.part_id = 'c3000000-0000-4000-8000-000000000001' AND i.credit_type_code IS NOT NULL;
 
 
 -- -----------------------------------------------------------------------------
--- 14. [Should] timeline รายเด็ก, PDF, การแจ้งเตือน และเนื้อหาหน้าเว็บ
+-- 9. ครูนนท์: ทีมงานให้ Pro รายปีเพื่อทดสอบระบบก่อนเปิดขาย + ชุดเติมชดเชย
+--    แสดงรอบเครดิตรายเดือนนับจากวันเริ่ม Pro: รอบที่ 1 หมดอายุแล้ว รอบที่ 2 กำลังใช้
 -- -----------------------------------------------------------------------------
 
-INSERT INTO student_progress_summaries (student_id, case_id, author_user_id, period_start, period_end, before_text, after_text, status) VALUES
-  ('e1000000-0000-4000-8000-000000000003', 'f4000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004',
-   pg_temp.d(-17), pg_temp.d(-3), 'ไม่ถามแม้ทำแบบฝึกหัดผิดซ้ำ', 'ยกมือถามเองได้ 1 ครั้ง และบอกบัดดี้ได้ว่าติดข้อไหน', 'draft');
+INSERT INTO grants (id, holder_user_id, plan_version_id, part_id, source_type, source_batch_id,
+                    starts_at, ends_at, reason, created_by, created_at) VALUES
+  ('c5000000-0000-4000-8000-000000000010', 'a1000000-0000-4000-8000-000000000002',
+   'c2000000-0000-4000-8000-000000000002', 'c3000000-0000-4000-8000-000000000002', 'staff', gen_random_uuid(),
+   pg_temp.ts(-40, '09:00'), pg_temp.ts(-40, '09:00') + interval '12 months',
+   'ทดสอบระบบ Pro ก่อนเปิดขายจริง', 'a1000000-0000-4000-8000-000000000014', pg_temp.ts(-40, '09:00')),
+  ('c5000000-0000-4000-8000-000000000011', 'a1000000-0000-4000-8000-000000000002',
+   'c2000000-0000-4000-8000-000000000006', 'c3000000-0000-4000-8000-000000000007', 'staff', gen_random_uuid(),
+   pg_temp.ts(-5, '14:00'), NULL,
+   'ชดเชยกรณีงาน AI ขัดข้อง (ตัวอย่าง)', 'a1000000-0000-4000-8000-000000000014', pg_temp.ts(-5, '14:00'));
 
-INSERT INTO generated_documents (owner_user_id, document_type, plan_version_id, file_id, template_version) VALUES
-  ('a1000000-0000-4000-8000-000000000004', 'development_plan_pdf', '73000000-0000-4000-8000-000000000002',
-   '91000000-0000-4000-8000-000000000005', 'gov-plan.v1');
+INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, expires_at, grant_id, created_at)
+SELECT 'a1000000-0000-4000-8000-000000000002', i.credit_type_code, 'grant', i.credit_amount,
+       pg_temp.ts(-40, '09:00') + make_interval(months => cycle), 'c5000000-0000-4000-8000-000000000010',
+       pg_temp.ts(-40, '09:00') + make_interval(months => cycle - 1)
+  FROM plan_version_items i
+ CROSS JOIN generate_series(1, 2) AS cycle
+ WHERE i.part_id = 'c3000000-0000-4000-8000-000000000002' AND i.credit_refill = 'monthly'
+ ORDER BY cycle;
 
-INSERT INTO notification_templates (id, code, channel, version, subject, body, is_active) VALUES
-  ('97000000-0000-4000-8000-000000000001', 'practice_reminder', 'line',   1, NULL, 'วันนี้ตั้งใจจะทำ "{{item_title}}" เวลา {{time}} ทำแล้วตอบกลับมาได้เลย มีรูปส่งมาด้วยได้', true),
-  ('97000000-0000-4000-8000-000000000002', 'practice_reminder', 'email',  1, 'เตือนกิจกรรมวันนี้', 'วันนี้ตั้งใจจะทำ "{{item_title}}" เวลา {{time}}', true),
-  ('97000000-0000-4000-8000-000000000003', 'plan_ready',        'in_app', 1, NULL, 'แผนพัฒนาฉบับร่างจาก AI พร้อมให้ตรวจแล้ว', true),
-  ('97000000-0000-4000-8000-000000000004', 'org_invitation',    'email',  1, 'คำเชิญเข้าร่วม {{organization_name}}', 'กดลิงก์เพื่อเข้าร่วม: {{accept_url}}', true);
+INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, expires_at, grant_id, created_at) VALUES
+  ('a1000000-0000-4000-8000-000000000002', 'coach_session', 'grant', 10,
+   pg_temp.ts(-5, '14:00') + interval '12 months', 'c5000000-0000-4000-8000-000000000011', pg_temp.ts(-5, '14:00'));
 
-INSERT INTO notification_jobs (id, user_id, template_id, channel, payload, dedupe_key, practice_session_id, scheduled_for, status, attempts, sent_at, read_at) VALUES
-  ('98000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', '97000000-0000-4000-8000-000000000001', 'line',
-   '{"item_title": "วงสนทนาเช้า 10 นาที", "time": "08:00"}', 'session:85000000-0000-4000-8000-000000000004:reminder',
-   '85000000-0000-4000-8000-000000000004', pg_temp.ts(-13, '07:30'), 'sent', 1, pg_temp.ts(-13, '07:30'), NULL),
-  ('98000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000004', '97000000-0000-4000-8000-000000000001', 'line',
-   '{"item_title": "วงสนทนาเช้า 10 นาที", "time": "08:00"}', 'session:85000000-0000-4000-8000-000000000008:reminder',
-   '85000000-0000-4000-8000-000000000008', pg_temp.ts(1, '07:30'), 'scheduled', 0, NULL, NULL),
-  ('98000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000004', '97000000-0000-4000-8000-000000000003', 'in_app',
-   '{"plan_id": "72000000-0000-4000-8000-000000000001"}', 'plan:72000000-0000-4000-8000-000000000001:v1:ready',
-   NULL, pg_temp.ts(-48, '19:12'), 'sent', 1, pg_temp.ts(-48, '19:12'), pg_temp.ts(-48, '19:30'));
+-- ใช้โค้ชไป 3 รอบในรอบเดือนปัจจุบัน: ระบบหักจากก้อนรายเดือน (หมดอายุก่อน) ก่อนชุดเติมและก้อนฟรี
+SELECT use_credit('a1000000-0000-4000-8000-000000000002', NULL, 'coach_session', 1, 'canvas', 'demo-canvas-1', 'a1000000-0000-4000-8000-000000000002');
+SELECT use_credit('a1000000-0000-4000-8000-000000000002', NULL, 'coach_session', 2, 'canvas', 'demo-canvas-2', 'a1000000-0000-4000-8000-000000000002');
 
--- อีเมลเชิญถึงคนที่ยังไม่มีบัญชี: ใช้ recipient_email แทน user_id
-INSERT INTO notification_jobs (id, recipient_email, invitation_id, template_id, channel, payload, dedupe_key, scheduled_for, status, attempts, sent_at) VALUES
-  ('98000000-0000-4000-8000-000000000004', 'new.teacher@example.com', '9b000000-0000-4000-8000-000000000002',
-   '97000000-0000-4000-8000-000000000004', 'email', '{"organization_name": "โรงเรียนตัวอย่างวิทยา (สมมติ)"}',
-   'invitation:9b000000-0000-4000-8000-000000000002:send:1', pg_temp.ts(-1, '09:00'), 'sent', 1, pg_temp.ts(-1, '09:00'));
-
-INSERT INTO notification_events (notification_job_id, event, occurred_at) VALUES
-  ('98000000-0000-4000-8000-000000000001', 'sent',    pg_temp.ts(-13, '07:30')),
-  ('98000000-0000-4000-8000-000000000001', 'clicked', pg_temp.ts(-13, '07:42'));
-
-INSERT INTO contents (id, content_type, slug, title, summary, body, cover_file_id, status, publish_at, approved_by, approved_at, created_by) VALUES
-  ('99000000-0000-4000-8000-000000000001', 'news', 'mock-open-house', 'เปิดรับครูร่วมทดลองใช้ SkillWise (ตัวอย่าง)', 'ข่าวตัวอย่าง',
-   'เนื้อหาตัวอย่าง', '91000000-0000-4000-8000-000000000004', 'published', pg_temp.ts(-5, '09:00'),
-   'a1000000-0000-4000-8000-000000000001', pg_temp.ts(-6, '16:00'), 'a1000000-0000-4000-8000-000000000001'),
-  ('99000000-0000-4000-8000-000000000002', 'page', 'mock-how-canvas-works', 'Canvas ช่วยครูคิดอย่างไร (ร่าง)', NULL,
-   'เนื้อหาตัวอย่าง', NULL, 'draft', NULL, NULL, NULL, 'a1000000-0000-4000-8000-000000000001');
+INSERT INTO audit_logs (actor_user_id, action, resource_type, resource_id, after, reason, created_at) VALUES
+  ('a1000000-0000-4000-8000-000000000014', 'grant.create', 'grant', 'c5000000-0000-4000-8000-000000000010',
+   '{"plan": "pro_yearly", "holder": "a1000000-0000-4000-8000-000000000002"}', 'ทดสอบระบบ Pro ก่อนเปิดขายจริง', pg_temp.ts(-40, '09:00')),
+  ('a1000000-0000-4000-8000-000000000014', 'grant.create', 'grant', 'c5000000-0000-4000-8000-000000000011',
+   '{"plan": "topup_coach_10", "holder": "a1000000-0000-4000-8000-000000000002"}', 'ชดเชยกรณีงาน AI ขัดข้อง (ตัวอย่าง)', pg_temp.ts(-5, '14:00')),
+  ('a1000000-0000-4000-8000-000000000014', 'code_batch.export', 'code_batch', 'e1000000-0000-4000-8000-000000000001',
+   '{"format": "pdf_sticker", "codes": 3}', NULL, pg_temp.ts(-58, '10:00'));
 
 
 -- -----------------------------------------------------------------------------
--- 15. Audit log
+-- 10. ครูมะลิ: ซื้อการ์ด 1 ชุด โอนแนบสลิป → ทีมงานยืนยัน → แพ็กส่ง → กดรหัสก่อนเปิด Pro
+--     สถานะคำสั่งซื้อเปลี่ยนทีละขั้น trigger บันทึกประวัติให้เอง
 -- -----------------------------------------------------------------------------
 
-INSERT INTO audit_logs (occurred_at, actor_user_id, impersonator_user_id, actor_type, action, permission_code, resource_type, resource_id, organization_id, ip, metadata) VALUES
-  (pg_temp.ts(-6, '10:15'), 'a1000000-0000-4000-8000-000000000001', NULL, 'admin', 'student.list.view', 'admin.sensitive.student.view',
-   'organization', 'b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', '198.51.100.7', '{"reason": "ตรวจข้อมูลซ้ำตามคำขอของโรงเรียน"}'),
-  (pg_temp.ts(-4, '14:00'), 'a1000000-0000-4000-8000-000000000004', 'a1000000-0000-4000-8000-000000000001', 'admin', 'user.impersonate', 'admin.impersonate',
-   'user', 'a1000000-0000-4000-8000-000000000004', NULL, '198.51.100.7', '{"reason": "ช่วยแก้ปัญหาอัปโหลดรูปไม่ขึ้น", "expires_minutes": 5}'),
-  (pg_temp.ts(-2, '09:30'), 'a1000000-0000-4000-8000-000000000006', NULL, 'user', 'org.dashboard.view', 'org.dashboard.view_aggregate',
-   'organization', 'b1000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000001', '203.0.113.20', '{}'),
-  (pg_temp.ts(-48, '19:06'), NULL, NULL, 'system', 'ai_job.failed', NULL,
-   'ai_job', '71000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000001', NULL, '{"error_code": "synthesis_failed", "charged": false}');
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000003';
+INSERT INTO orders (id, order_number, buyer_user_id, subtotal_satang, shipping_satang, total_satang,
+                    vat_satang, amount_due_satang, payment_due_at, shipping_snapshot, created_at) VALUES
+  ('61000000-0000-4000-8000-000000000001', 'SW-000001', 'a1000000-0000-4000-8000-000000000003',
+   50000, 5000, 55000, 3598, 55000, pg_temp.ts(-19, '10:00'),
+   '{"recipient_name": "มะลิ ใจดี", "phone": "0810000003", "address": "99/1 หมู่ 2 ตำบลตัวอย่าง อำเภอตัวอย่าง เชียงใหม่ 50000"}',
+   pg_temp.ts(-20, '10:00'));
+INSERT INTO order_items (order_id, product_id, name_snapshot, unit_price_satang, quantity, line_total_satang) VALUES
+  ('61000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'การ์ดจับดี', 50000, 1, 50000);
+SELECT hold_stock('d1000000-0000-4000-8000-000000000001', '61000000-0000-4000-8000-000000000001', 1, now() + interval '24 hours');
+
+INSERT INTO payments (id, order_id, provider, method, amount_satang, slip_file_id, created_at) VALUES
+  ('63000000-0000-4000-8000-000000000001', '61000000-0000-4000-8000-000000000001', 'bank_transfer', 'transfer',
+   55000, '91000000-0000-4000-8000-000000000003', pg_temp.ts(-20, '10:20'));
+UPDATE orders SET status = 'awaiting_verification' WHERE id = '61000000-0000-4000-8000-000000000001';
+
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000012';
+SET LOCAL app.status_reason = 'ตรวจสลิปแล้ว ยอดตรง';
+UPDATE payments SET status = 'succeeded', verified_by = 'a1000000-0000-4000-8000-000000000012', verified_at = pg_temp.ts(-20, '13:00')
+ WHERE id = '63000000-0000-4000-8000-000000000001';
+UPDATE orders SET status = 'paid' WHERE id = '61000000-0000-4000-8000-000000000001';
+UPDATE inventory_holds SET status = 'committed' WHERE order_id = '61000000-0000-4000-8000-000000000001';
+INSERT INTO inventory_movements (product_id, quantity, movement_type, order_id, created_at) VALUES
+  ('d1000000-0000-4000-8000-000000000001', -1, 'sale', '61000000-0000-4000-8000-000000000001', pg_temp.ts(-20, '13:00'));
+
+-- ชำระค่าการ์ดสำเร็จ = ได้คูปองลด 30% ทันที (กติกา H) · กดรหัสภายหลังจะไม่ได้คูปองซ้ำ
+INSERT INTO grants (id, holder_user_id, plan_version_id, part_id, source_type, source_ref, source_batch_id, starts_at, created_at) VALUES
+  ('c5000000-0000-4000-8000-000000000020', 'a1000000-0000-4000-8000-000000000003',
+   'c2000000-0000-4000-8000-000000000005', 'c3000000-0000-4000-8000-000000000006',
+   'order', '61000000-0000-4000-8000-000000000001', '61000000-0000-4000-8000-000000000001',
+   pg_temp.ts(-20, '13:00'), pg_temp.ts(-20, '13:00'));
+INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, expires_at, grant_id, created_at) VALUES
+  ('a1000000-0000-4000-8000-000000000003', 'voucher.zoom30', 'grant', 1,
+   pg_temp.ts(-20, '13:00') + interval '12 months', 'c5000000-0000-4000-8000-000000000020', pg_temp.ts(-20, '13:00'));
+
+INSERT INTO financial_documents (id, doc_type, seq_year, seq_number, doc_number, order_id, buyer_snapshot, items_snapshot,
+                                 subtotal_satang, vat_satang, total_satang, amount_in_words, pdf_file_id, issued_at)
+SELECT '65000000-0000-4000-8000-000000000001', 'receipt', pg_temp.be_year(), n,
+       'RC' || pg_temp.be_year() || '-' || lpad(n::text, 5, '0'), '61000000-0000-4000-8000-000000000001',
+       '{"name": "มะลิ ใจดี"}', '[{"name": "การ์ดจับดี", "qty": 1, "unit_satang": 50000}, {"name": "ค่าส่ง", "qty": 1, "unit_satang": 5000}]',
+       55000, 3598, 55000, 'ห้าร้อยห้าสิบบาทถ้วน', '91000000-0000-4000-8000-000000000004', pg_temp.ts(-20, '13:01')
+  FROM next_document_number('receipt', pg_temp.be_year()) AS n;
+
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000011';
+SET LOCAL app.status_reason = '';
+UPDATE orders SET status = 'awaiting_packing' WHERE id = '61000000-0000-4000-8000-000000000001';
+INSERT INTO shipments (id, order_id, carrier, tracking_number, shipped_at, created_by) VALUES
+  ('64000000-0000-4000-8000-000000000001', '61000000-0000-4000-8000-000000000001', 'ไปรษณีย์ไทย', 'EX000000001TH',
+   pg_temp.ts(-18, '15:00'), 'a1000000-0000-4000-8000-000000000011');
+INSERT INTO shipment_codes (shipment_id, redeem_code_id, added_by) VALUES
+  ('64000000-0000-4000-8000-000000000001', 'e2000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000011');
+UPDATE orders SET status = 'shipped' WHERE id = '61000000-0000-4000-8000-000000000001';
+
+-- ครูมะลิกดรหัสก่อนเปิดระบบ Pro: ส่วนได้ทันทีใช้ได้เลย · ส่วน Pro รอเริ่ม (ไม่มีวันเริ่ม)
+-- คูปองในส่วนได้ทันทีไม่ให้ซ้ำ เพราะได้ไปแล้วตอนชำระค่าการ์ด
+INSERT INTO grants (id, holder_user_id, plan_version_id, part_id, source_type, source_ref, source_batch_id,
+                    start_condition, starts_at, created_at) VALUES
+  ('c5000000-0000-4000-8000-000000000021', 'a1000000-0000-4000-8000-000000000003',
+   'c2000000-0000-4000-8000-000000000004', 'c3000000-0000-4000-8000-000000000004',
+   'redeem_code', 'e2000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000001',
+   NULL, pg_temp.ts(-15, '20:00'), pg_temp.ts(-15, '20:00')),
+  ('c5000000-0000-4000-8000-000000000022', 'a1000000-0000-4000-8000-000000000003',
+   'c2000000-0000-4000-8000-000000000004', 'c3000000-0000-4000-8000-000000000005',
+   'redeem_code', 'e2000000-0000-4000-8000-000000000001', 'e3000000-0000-4000-8000-000000000001',
+   'pro_launch', NULL, pg_temp.ts(-15, '20:00'));
+UPDATE redeem_codes
+   SET redeemed_by = 'a1000000-0000-4000-8000-000000000003', redeemed_at = pg_temp.ts(-15, '20:00'),
+       grant_batch_id = 'e3000000-0000-4000-8000-000000000001'
+ WHERE id = 'e2000000-0000-4000-8000-000000000001';
+INSERT INTO redeem_attempts (user_id, client_key, code_masked, result, created_at) VALUES
+  ('a1000000-0000-4000-8000-000000000003', 'ip:203.0.113.10', 'SKW-7Q2K-M4P*', 'not_found', pg_temp.ts(-15, '19:58')),
+  ('a1000000-0000-4000-8000-000000000003', 'ip:203.0.113.10', 'SKW-7Q2K-****', 'redeemed',  pg_temp.ts(-15, '20:00'));
+
+RESET app.actor_user_id;  -- เปลี่ยนสถานะโดยระบบ
+UPDATE orders SET status = 'code_redeemed' WHERE id = '61000000-0000-4000-8000-000000000001';
+
+
+-- -----------------------------------------------------------------------------
+-- 11. ครูมะลิใช้คูปองจองเวิร์กช็อป onZoom: 900 → 630 บาท จ่ายพร้อมเพย์ผ่านระบบรับเงิน
+-- -----------------------------------------------------------------------------
+
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000003';
+INSERT INTO orders (id, order_number, buyer_user_id, subtotal_satang, discount_satang, total_satang,
+                    vat_satang, amount_due_satang, payment_due_at, created_at) VALUES
+  ('61000000-0000-4000-8000-000000000005', 'SW-000005', 'a1000000-0000-4000-8000-000000000003',
+   90000, 27000, 63000, 4121, 63000, pg_temp.ts(-7, '10:00'), pg_temp.ts(-8, '10:00'));
+INSERT INTO order_items (order_id, seat_pool_id, name_snapshot, unit_price_satang, quantity,
+                         discount_satang, discount_source, seat_user_id, line_total_satang) VALUES
+  ('61000000-0000-4000-8000-000000000005', 'f2000000-0000-4000-8000-000000000002', 'เวิร์กช็อป onZoom รอบแรก',
+   90000, 1, 27000, 'voucher', 'a1000000-0000-4000-8000-000000000003', 63000);
+INSERT INTO seat_bookings (id, seat_pool_id, user_id, booked_by, status, order_id, hold_expires_at) VALUES
+  ('f3000000-0000-4000-8000-000000000002', 'f2000000-0000-4000-8000-000000000002',
+   'a1000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000003', 'pending_payment',
+   '61000000-0000-4000-8000-000000000005', now() + interval '15 minutes');
+INSERT INTO payments (id, order_id, provider, method, provider_payment_id, amount_satang, expires_at, created_at) VALUES
+  ('63000000-0000-4000-8000-000000000005', '61000000-0000-4000-8000-000000000005', 'opn', 'promptpay',
+   'chrg_test_000005', 63000, pg_temp.ts(-8, '10:15'), pg_temp.ts(-8, '10:00'));
+
+RESET app.actor_user_id;
+INSERT INTO payment_events (provider, provider_event_id, event_type, payload, received_at, processed_at) VALUES
+  ('opn', 'evnt_test_000005', 'charge.complete', '{"charge": "chrg_test_000005", "amount": 63000, "currency": "thb"}',
+   pg_temp.ts(-8, '10:03'), pg_temp.ts(-8, '10:03'));
+UPDATE payments SET status = 'succeeded' WHERE id = '63000000-0000-4000-8000-000000000005';
+UPDATE orders SET status = 'paid' WHERE id = '61000000-0000-4000-8000-000000000005';
+-- หักคูปองตอนชำระเงินสำเร็จ แล้วผูกกับรายการในคำสั่งซื้อ
+UPDATE order_items
+   SET voucher_entry_id = (SELECT id FROM use_credit('a1000000-0000-4000-8000-000000000003', NULL, 'voucher.zoom30', 1,
+                                                     'order', '61000000-0000-4000-8000-000000000005', NULL))
+ WHERE order_id = '61000000-0000-4000-8000-000000000005';
+UPDATE seat_bookings SET status = 'confirmed', hold_expires_at = NULL WHERE id = 'f3000000-0000-4000-8000-000000000002';
+UPDATE orders SET status = 'completed' WHERE id = '61000000-0000-4000-8000-000000000005';
+
+INSERT INTO financial_documents (id, doc_type, seq_year, seq_number, doc_number, order_id, buyer_snapshot, items_snapshot,
+                                 subtotal_satang, discount_satang, vat_satang, total_satang, amount_in_words, issued_at)
+SELECT '65000000-0000-4000-8000-000000000002', 'receipt', pg_temp.be_year(), n,
+       'RC' || pg_temp.be_year() || '-' || lpad(n::text, 5, '0'), '61000000-0000-4000-8000-000000000005',
+       '{"name": "มะลิ ใจดี"}', '[{"name": "เวิร์กช็อป onZoom รอบแรก", "qty": 1, "unit_satang": 90000, "discount_satang": 27000}]',
+       90000, 27000, 4121, 63000, 'หกร้อยสามสิบบาทถ้วน', pg_temp.ts(-8, '10:04')
+  FROM next_document_number('receipt', pg_temp.be_year()) AS n;
+
+
+-- -----------------------------------------------------------------------------
+-- 12. คำสั่งซื้อที่รอทีมงาน: ครูต้นแนบสลิปรอตรวจ · ครูแก้วโอนขาด
+-- -----------------------------------------------------------------------------
+
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000005';
+INSERT INTO orders (id, order_number, buyer_user_id, subtotal_satang, shipping_satang, total_satang,
+                    vat_satang, amount_due_satang, payment_due_at, shipping_snapshot, created_at) VALUES
+  ('61000000-0000-4000-8000-000000000002', 'SW-000002', 'a1000000-0000-4000-8000-000000000005',
+   100000, 5000, 105000, 6869, 105000, now() + interval '20 hours',
+   '{"recipient_name": "ต้น รักเรียน", "phone": "0810000005", "address": "12 ซอยตัวอย่าง แขวงตัวอย่าง เขตตัวอย่าง กรุงเทพมหานคร 10100"}',
+   now() - interval '4 hours');
+INSERT INTO order_items (order_id, product_id, name_snapshot, unit_price_satang, quantity, line_total_satang) VALUES
+  ('61000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-000000000001', 'การ์ดจับดี', 50000, 2, 100000);
+SELECT hold_stock('d1000000-0000-4000-8000-000000000001', '61000000-0000-4000-8000-000000000002', 2, now() + interval '20 hours');
+INSERT INTO payments (order_id, provider, method, amount_satang, slip_file_id) VALUES
+  ('61000000-0000-4000-8000-000000000002', 'bank_transfer', 'transfer', 105000, '91000000-0000-4000-8000-000000000001');
+UPDATE orders SET status = 'awaiting_verification' WHERE id = '61000000-0000-4000-8000-000000000002';
+
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000006';
+INSERT INTO orders (id, order_number, buyer_user_id, subtotal_satang, shipping_satang, total_satang,
+                    vat_satang, amount_due_satang, payment_due_at, shipping_snapshot, created_at) VALUES
+  ('61000000-0000-4000-8000-000000000003', 'SW-000003', 'a1000000-0000-4000-8000-000000000006',
+   50000, 5000, 55000, 3598, 55000, now() + interval '22 hours',
+   '{"recipient_name": "แก้ว ใสสะอาด", "phone": "0810000006", "address": "45 ถนนตัวอย่าง ตำบลตัวอย่าง อำเภอตัวอย่าง ขอนแก่น 40000"}',
+   now() - interval '1 day');
+INSERT INTO order_items (order_id, product_id, name_snapshot, unit_price_satang, quantity, line_total_satang) VALUES
+  ('61000000-0000-4000-8000-000000000003', 'd1000000-0000-4000-8000-000000000001', 'การ์ดจับดี', 50000, 1, 50000);
+SELECT hold_stock('d1000000-0000-4000-8000-000000000001', '61000000-0000-4000-8000-000000000003', 1, now() + interval '22 hours');
+INSERT INTO payments (id, order_id, provider, method, amount_satang, slip_file_id) VALUES
+  ('63000000-0000-4000-8000-000000000003', '61000000-0000-4000-8000-000000000003', 'bank_transfer', 'transfer',
+   50000, '91000000-0000-4000-8000-000000000002');
+UPDATE orders SET status = 'awaiting_verification' WHERE id = '61000000-0000-4000-8000-000000000003';
+
+SET LOCAL app.actor_user_id = 'a1000000-0000-4000-8000-000000000012';
+SET LOCAL app.status_reason = 'สลิปยอด 500 บาท ขาด 50 บาท แจ้งยอดที่ขาดทาง LINE แล้ว';
+UPDATE payments SET status = 'succeeded', verified_by = 'a1000000-0000-4000-8000-000000000012', verified_at = now() - interval '2 hours'
+ WHERE id = '63000000-0000-4000-8000-000000000003';
+UPDATE orders SET status = 'underpaid' WHERE id = '61000000-0000-4000-8000-000000000003';
+RESET app.actor_user_id;
+RESET app.status_reason;
+
+
+-- -----------------------------------------------------------------------------
+-- 13. ครูบีขอใบเสนอราคาในนามโรงเรียน 10 ชุด (ราคาชุดโรงเรียน) · ออกมา 8 วัน ยังไม่โทรตาม
+-- -----------------------------------------------------------------------------
+
+INSERT INTO financial_documents (id, doc_type, seq_year, seq_number, doc_number, requested_by, buyer_snapshot, items_snapshot,
+                                 subtotal_satang, vat_satang, total_satang, amount_in_words, valid_until, issued_at)
+SELECT '65000000-0000-4000-8000-000000000003', 'quotation', pg_temp.be_year(), n,
+       'QT' || pg_temp.be_year() || '-' || lpad(n::text, 5, '0'), 'a1000000-0000-4000-8000-000000000004',
+       '{"name": "โรงเรียนเมืองตัวอย่างวิทยา", "tax_id": "0994000000001", "branch": "สำนักงานใหญ่"}',
+       '[{"name": "การ์ดจับดี (ราคาชุดโรงเรียน)", "qty": 10, "unit_satang": 45000}]',
+       450000, 29439, 450000, 'สี่พันห้าร้อยบาทถ้วน', pg_temp.ts(22, '23:59'), pg_temp.ts(-8, '13:30')
+  FROM next_document_number('quotation', pg_temp.be_year()) AS n;
+
+
+-- -----------------------------------------------------------------------------
+-- 14. ข้อความแจ้งเตือนและบันทึกการเปิดดูข้อมูลส่วนบุคคล
+-- -----------------------------------------------------------------------------
+
+INSERT INTO notification_templates (event_code, channel, body, is_required) VALUES
+  ('order.confirmed',        'line',  'ได้รับคำสั่งซื้อ {order_number} แล้ว ยอด {total} บาท ดูใบเสร็จได้ที่ {link}', true),
+  ('order.confirmed',        'email', 'ได้รับคำสั่งซื้อ {order_number} แล้ว แนบใบเสร็จมาในอีเมลนี้',            true),
+  ('order.underpaid',        'line',  'ยอดที่โอนมายังขาดอีก {missing} บาท โอนเพิ่มแล้วแนบสลิปได้ที่ {link}',      true),
+  ('shipment.tracking',      'line',  'ส่งของแล้ว เลขพัสดุ {tracking_number} ({carrier})',                     true),
+  ('code.redeem_reminder',   'line',  'ได้รับการ์ดจับดีแล้วหรือยัง สแกนรหัสในกล่องเพื่อดูวิดีโอและคู่มือครูได้เลย', false),
+  ('seat.booking_confirmed', 'line',  'ยืนยันที่นั่ง {event_title} วันที่ {date} แล้ว',                           false),
+  ('seat.reminder',          'line',  'พรุ่งนี้มีอบรม {event_title} เข้าห้องได้ที่ {join_url}',                   false);
+
+INSERT INTO notifications (recipient_user_id, event_code, channel, counts_line_quota, status, scheduled_for, sent_at, ref_type, ref_id) VALUES
+  ('a1000000-0000-4000-8000-000000000003', 'order.confirmed',        'line',  true,  'sent', pg_temp.ts(-20, '13:01'), pg_temp.ts(-20, '13:01'), 'order', '61000000-0000-4000-8000-000000000001'),
+  ('a1000000-0000-4000-8000-000000000003', 'order.confirmed',        'email', false, 'sent', pg_temp.ts(-20, '13:01'), pg_temp.ts(-20, '13:01'), 'order', '61000000-0000-4000-8000-000000000001'),
+  ('a1000000-0000-4000-8000-000000000003', 'shipment.tracking',      'line',  true,  'sent', pg_temp.ts(-18, '15:05'), pg_temp.ts(-18, '15:05'), 'order', '61000000-0000-4000-8000-000000000001'),
+  ('a1000000-0000-4000-8000-000000000003', 'seat.booking_confirmed', 'line',  true,  'sent', pg_temp.ts(-8, '10:04'),  pg_temp.ts(-8, '10:04'),  'seat_booking', 'f3000000-0000-4000-8000-000000000002'),
+  ('a1000000-0000-4000-8000-000000000006', 'order.underpaid',        'line',  true,  'sent', now() - interval '2 hours', now() - interval '2 hours', 'order', '61000000-0000-4000-8000-000000000003'),
+  ('a1000000-0000-4000-8000-000000000003', 'seat.reminder',          'line',  true,  'queued', pg_temp.ts(29, '09:00'), NULL, 'seat_booking', 'f3000000-0000-4000-8000-000000000002');
+
+INSERT INTO pii_access_logs (staff_user_id, subject_user_id, field, created_at) VALUES
+  ('a1000000-0000-4000-8000-000000000011', 'a1000000-0000-4000-8000-000000000003', 'address', pg_temp.ts(-18, '14:40'));
 
 COMMIT;

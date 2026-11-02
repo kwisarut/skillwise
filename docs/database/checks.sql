@@ -1,258 +1,501 @@
 -- =============================================================================
--- SkillWise — ตรวจว่ากฎในฐานข้อมูลทำงานจริง
+-- SkillwisE — ตรวจว่ากฎในฐานข้อมูลทำงานจริง
 -- =============================================================================
--- รันหลัง schema.sql → seed.sql → rls.sql ทุกข้อ (27 ข้อ) ต้องขึ้น NOTICE "OK"
+-- รันหลัง schema.sql → seed.sql → rls.sql ทุกข้อ (35 ข้อ) ต้องขึ้น NOTICE "OK"
 -- ถ้าข้อไหนไม่เป็นตามคาด จะขึ้น ERROR "FAIL ..." แล้วหยุด
 -- ไฟล์นี้ ROLLBACK ตอนจบ จึงไม่เปลี่ยนข้อมูลในฐาน
+--
+-- ข้อในวงเล็บ [5.7 #n] / [6.9 #n] คือกรณีทดสอบบังคับในแผนระบบที่ข้อนี้ครอบคลุมในชั้นฐานข้อมูล
+-- กรณีที่เหลือ (เช่น ตรวจลายเซ็นข้อความจากระบบรับเงิน, ส่ง LINE) ต้องเทสใน apps/api ดู README หัวข้อ 4
 --
 -- วิธีรัน: psql -v ON_ERROR_STOP=1 -f checks.sql
 -- =============================================================================
 
 BEGIN;
 
--- 1. แจก seat เกินจำนวนไม่ได้ (pool รายคนมี 1 ที่ ใช้ไปแล้ว)
+-- ---------------------------------------------------------------------------
+-- ก. สิทธิ์และเครดิต
+-- ---------------------------------------------------------------------------
+
+-- 1. บัญชีใหม่ได้สมาชิกฟรีพร้อมเครดิต 2 + 2 [5.7 #1]
 DO $$ BEGIN
-  INSERT INTO seat_assignments (seat_pool_id, user_id)
-  VALUES ('d2000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000008');
-  RAISE EXCEPTION 'FAIL 1: แจก seat เกินจำนวนได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 1: แจก seat เกินจำนวนไม่ได้';
+  IF credit_balance('a1000000-0000-4000-8000-000000000001', NULL, 'coach_session') <> 2
+     OR credit_balance('a1000000-0000-4000-8000-000000000001', NULL, 'canvas_analysis') <> 2 THEN
+    RAISE EXCEPTION 'FAIL 1: เครดิตตั้งต้นของสมาชิกฟรีไม่ใช่ 2 + 2';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM active_entitlements
+                  WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000001'
+                    AND entitlement_code = 'classroom.limit' AND entitlement_value = 1) THEN
+    RAISE EXCEPTION 'FAIL 1: สมาชิกฟรีไม่ได้ห้องเรียน 1 ห้อง';
+  END IF;
+  RAISE NOTICE 'OK 1: บัญชีใหม่ได้สมาชิกฟรี ห้องเรียน 1 ห้อง และเครดิตโค้ช 2 + วิเคราะห์ 2';
 END $$;
 
--- 2. หักเครดิตจากงาน AI ที่ล้มเหลวไม่ได้
+-- 2. กดรหัสก่อนเปิด Pro → Pro รอเริ่ม (ไม่มีวันเริ่ม) · วิดีโอและคู่มือใช้ได้ทันที [5.7 #2]
 DO $$ BEGIN
-  INSERT INTO usage_ledger (user_id, feature_code, delta, reason, ai_job_id)
-  VALUES ('a1000000-0000-4000-8000-000000000004', 'ai.plan_synthesis', -1, 'usage', '71000000-0000-4000-8000-000000000002');
-  RAISE EXCEPTION 'FAIL 2: หักเครดิตงานที่ล้มเหลวได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 2: งาน AI ที่ล้มเหลวไม่ถูกหักเครดิต';
+  IF (SELECT status FROM grant_statuses WHERE id = 'c5000000-0000-4000-8000-000000000022') <> 'pending'
+     OR (SELECT starts_at FROM grants WHERE id = 'c5000000-0000-4000-8000-000000000022') IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 2: Pro จากรหัสไม่อยู่ในสถานะรอเริ่ม';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM active_entitlements
+                  WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000003' AND entitlement_code = 'cards.teacher_edition')
+     OR EXISTS (SELECT 1 FROM active_entitlements
+                 WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000003' AND entitlement_code = 'pro') THEN
+    RAISE EXCEPTION 'FAIL 2: สิทธิ์ส่วนได้ทันที / ส่วน Pro ไม่ถูกต้อง';
+  END IF;
+  RAISE NOTICE 'OK 2: กดรหัสก่อนเปิด Pro → Pro รอเริ่ม ส่วนวิดีโอและคู่มือใช้ได้ทันที';
 END $$;
 
--- 3. หักเครดิตงานเดียวกันซ้ำไม่ได้
-DO $$ BEGIN
-  INSERT INTO usage_ledger (user_id, feature_code, delta, reason, ai_job_id)
-  VALUES ('a1000000-0000-4000-8000-000000000004', 'ai.plan_synthesis', -1, 'usage', '71000000-0000-4000-8000-000000000003');
-  RAISE EXCEPTION 'FAIL 3: หักเครดิตซ้ำได้';
-EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'OK 3: หักเครดิตงานเดียวกันได้ครั้งเดียว';
-END $$;
-
--- 4. ยอดเครดิตคงเหลือคำนวณจาก ledger
+-- 3. วันเปิด Pro มาถึง → Pro ที่รอเริ่มนับ 3 เดือนจากวันเปิด [5.7 #3]
 DO $$
-DECLARE b integer;
+DECLARE
+  launch timestamptz := now() - interval '1 minute';
 BEGIN
-  SELECT balance INTO b FROM usage_balances
-   WHERE user_id = 'a1000000-0000-4000-8000-000000000004' AND feature_code = 'ai.plan_synthesis';
-  IF b <> 2 THEN RAISE EXCEPTION 'FAIL 4: ยอดคงเหลือ % (คาดว่า 2)', b; END IF;
-  RAISE NOTICE 'OK 4: เครดิตสังเคราะห์แผนเหลือ 2 (ลองฟรี 1 + โควตา 2 − ใช้ 1)';
+  UPDATE system_settings SET value = to_jsonb(launch) WHERE key = 'pro_launch_at';
+  UPDATE grants g
+     SET starts_at = launch, ends_at = launch + make_interval(months => p.duration_months)
+    FROM plan_version_parts p
+   WHERE p.id = g.part_id AND g.starts_at IS NULL AND g.start_condition = 'pro_launch' AND g.cancelled_at IS NULL;
+  IF (SELECT status FROM grant_statuses WHERE id = 'c5000000-0000-4000-8000-000000000022') <> 'active'
+     OR (SELECT ends_at FROM grants WHERE id = 'c5000000-0000-4000-8000-000000000022') <> launch + interval '3 months' THEN
+    RAISE EXCEPTION 'FAIL 3: Pro ที่รอเริ่มไม่เริ่มนับจากวันเปิด';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM active_entitlements
+                  WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000003' AND entitlement_code = 'pro') THEN
+    RAISE EXCEPTION 'FAIL 3: ยังไม่ได้สิทธิ์ pro หลังเปิดระบบ';
+  END IF;
+  RAISE NOTICE 'OK 3: เปิดระบบ Pro → Pro ที่รอเริ่มได้ 3 เดือนนับจากวันเปิด';
 END $$;
 
--- 5. audit log แก้หรือลบไม่ได้
+-- 4. วันเริ่มที่กรอกแล้วแก้ไม่ได้ (การเปลี่ยนสิทธิ์ต้องเป็นรายการใหม่)
 DO $$ BEGIN
-  DELETE FROM audit_logs;
-  RAISE EXCEPTION 'FAIL 5: ลบ audit log ได้';
-EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 5: audit log เพิ่มได้อย่างเดียว';
+  UPDATE grants SET starts_at = now() WHERE id = 'c5000000-0000-4000-8000-000000000022';
+  RAISE EXCEPTION 'FAIL 4: แก้วันเริ่มของการได้สิทธิ์ได้';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 4: วันเริ่มที่กรอกแล้วแก้ไม่ได้';
 END $$;
 
--- 6. เวลาบันทึกมาจากระบบ: ส่ง recorded_at ย้อนหลังมาเองไม่มีผล และบันทึกย้อนหลังถูกติดป้าย
+-- 5. การได้สิทธิ์ลบไม่ได้ ต้องบันทึกการยกเลิกแทน
+DO $$ BEGIN
+  DELETE FROM grants WHERE id = 'c5000000-0000-4000-8000-000000000021';
+  RAISE EXCEPTION 'FAIL 5: ลบการได้สิทธิ์ได้';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 5: การได้สิทธิ์ลบไม่ได้';
+END $$;
+
+-- 6. หักเครดิตจากก้อนที่หมดอายุก่อนก่อน และหักข้ามก้อนได้ [5.7 #14]
 DO $$
-DECLARE r practice_logs;
+DECLARE
+  first_use  credit_ledger;
+  used_lots  integer;
 BEGIN
-  INSERT INTO practice_logs (action_item_id, author_user_id, outcome, happened_on, recorded_at, note)
-  VALUES ('84000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'done',
-          (now() AT TIME ZONE 'Asia/Bangkok')::date - 3, now() - interval '3 days', 'ทดสอบ')
-  RETURNING * INTO r;
-  IF r.recorded_at < now() - interval '1 minute' THEN RAISE EXCEPTION 'FAIL 6: ตั้ง recorded_at เองได้'; END IF;
-  IF NOT r.is_backdated THEN RAISE EXCEPTION 'FAIL 6: ไม่ติดป้ายย้อนหลัง'; END IF;
-  RAISE NOTICE 'OK 6: recorded_at มาจากระบบ และบันทึกย้อนหลัง 3 วันถูกติดป้าย';
+  SELECT * INTO first_use FROM use_credit('a1000000-0000-4000-8000-000000000002', NULL, 'coach_session', 1, 'canvas', 'check-6', NULL);
+  IF (SELECT expires_at FROM credit_ledger WHERE id = first_use.lot_id) IS DISTINCT FROM
+     (SELECT min(expires_at) FROM credit_lots
+       WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000002' AND credit_type_code = 'coach_session' AND NOT is_expired) THEN
+    RAISE EXCEPTION 'FAIL 6: ไม่ได้หักจากก้อนที่หมดอายุก่อน';
+  END IF;
+  -- ก้อนรายเดือนเหลือ 6 · หัก 8 = ก้อนรายเดือน 6 + ชุดเติม 2
+  SELECT count(*) INTO used_lots FROM use_credit('a1000000-0000-4000-8000-000000000002', NULL, 'coach_session', 8, 'canvas', 'check-6b', NULL);
+  IF used_lots <> 2 OR credit_balance('a1000000-0000-4000-8000-000000000002', NULL, 'coach_session') <> 10 THEN
+    RAISE EXCEPTION 'FAIL 6: หักข้ามก้อนไม่ถูกต้อง';
+  END IF;
+  RAISE NOTICE 'OK 6: หักเครดิตจากก้อนที่หมดอายุก่อนก่อน และหักข้ามก้อนได้';
 END $$;
 
--- 7. บันทึกล่วงหน้าไม่ได้
+-- 7. หักเกินยอดไม่ได้ และไม่หักไปบางส่วน [5.7 #12]
 DO $$ BEGIN
-  INSERT INTO practice_logs (action_item_id, author_user_id, outcome, happened_on)
-  VALUES ('84000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000004', 'done',
-          (now() AT TIME ZONE 'Asia/Bangkok')::date + 1);
-  RAISE EXCEPTION 'FAIL 7: บันทึกล่วงหน้าได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 7: บันทึกล่วงหน้าไม่ได้';
+  BEGIN
+    PERFORM use_credit('a1000000-0000-4000-8000-000000000001', NULL, 'coach_session', 3, 'canvas', 'check-7', NULL);
+    RAISE EXCEPTION 'FAIL 7: หักเกินยอดได้';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF credit_balance('a1000000-0000-4000-8000-000000000001', NULL, 'coach_session') <> 2 THEN
+    RAISE EXCEPTION 'FAIL 7: หักไม่สำเร็จแต่ยอดลดไปบางส่วน';
+  END IF;
+  RAISE NOTICE 'OK 7: หักเกินยอดไม่ได้ และยอดไม่ลดไปบางส่วน';
 END $$;
 
--- 8. แก้บันทึกแล้วประวัติยังอยู่
+-- 8. เหลือ 1 แล้วหักครั้งละ 2 (ร่างทั้งใบ) ไม่ได้ [5.7 #12]
+DO $$ BEGIN
+  PERFORM use_credit('a1000000-0000-4000-8000-000000000001', NULL, 'coach_session', 1, 'canvas', 'check-8', NULL);
+  BEGIN
+    PERFORM use_credit('a1000000-0000-4000-8000-000000000001', NULL, 'coach_session', 2, 'canvas', 'check-8b', NULL);
+    RAISE EXCEPTION 'FAIL 8: หัก 2 ได้ทั้งที่เหลือ 1';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF credit_balance('a1000000-0000-4000-8000-000000000001', NULL, 'coach_session') <> 1 THEN
+    RAISE EXCEPTION 'FAIL 8: ยอดคงเหลือไม่ใช่ 1';
+  END IF;
+  RAISE NOTICE 'OK 8: เหลือ 1 แล้วหักครั้งละ 2 ไม่ได้';
+END $$;
+
+-- 9. ก้อนที่หมดอายุแล้วไม่นับในยอด และหักจากก้อนนั้นตรง ๆ ไม่ได้ [5.7 #14]
 DO $$
-DECLARE n integer;
+DECLARE
+  expired_lot bigint;
 BEGIN
-  SELECT count(*) INTO n FROM practice_log_revisions WHERE practice_log_id = '86000000-0000-4000-8000-000000000002';
-  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 8: มี revision % แถว (คาดว่า 2)', n; END IF;
-  RAISE NOTICE 'OK 8: บันทึกที่แก้ 1 ครั้งมีประวัติ 2 revision';
+  SELECT id INTO expired_lot FROM credit_lots
+   WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000002' AND credit_type_code = 'coach_session' AND is_expired;
+  INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, lot_id)
+  VALUES ('a1000000-0000-4000-8000-000000000002', 'coach_session', 'use', -1, expired_lot);
+  RAISE EXCEPTION 'FAIL 9: หักจากก้อนที่หมดอายุได้';
+EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 9: ก้อนที่หมดอายุไม่นับในยอด และหักไม่ได้';
 END $$;
 
--- 9. ผูกนักเรียนกับห้องขององค์กรอื่นไม่ได้
-DO $$ BEGIN
-  INSERT INTO org_units (id, organization_id, kind, name)
-  VALUES ('b2000000-0000-4000-8000-000000000099', 'b1000000-0000-4000-8000-000000000002', 'group', 'กลุ่มทดสอบ');
-  INSERT INTO student_enrollments (student_id, org_unit_id, organization_id, starts_on)
-  VALUES ('e1000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000099',
-          'b1000000-0000-4000-8000-000000000002', current_date);
-  RAISE EXCEPTION 'FAIL 9: ผูกนักเรียนข้ามองค์กรได้';
-EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'OK 9: ผูกนักเรียนกับห้องขององค์กรอื่นไม่ได้';
-END $$;
-
--- 10. นักเรียนอยู่ห้องเดียวกันในช่วงเวลาซ้อนกันไม่ได้
-DO $$ BEGIN
-  INSERT INTO student_enrollments (student_id, org_unit_id, organization_id, starts_on)
-  VALUES ('e1000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000002',
-          'b1000000-0000-4000-8000-000000000001', current_date);
-  RAISE EXCEPTION 'FAIL 10: ช่วงเวลาซ้อนกันได้';
-EXCEPTION WHEN exclusion_violation THEN RAISE NOTICE 'OK 10: ช่วงเวลาในห้องเดียวกันซ้อนกันไม่ได้';
-END $$;
-
--- 11. ไฟล์ที่มีข้อมูลนักเรียนเป็น public ไม่ได้
-DO $$ BEGIN
-  UPDATE files SET access_level = 'public' WHERE id = '91000000-0000-4000-8000-000000000001';
-  RAISE EXCEPTION 'FAIL 11: เปิดไฟล์ข้อมูลนักเรียนเป็น public ได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 11: ไฟล์ที่มีข้อมูลนักเรียนเป็น public ไม่ได้';
-END $$;
-
--- 12. เนื้อหาขึ้นหน้าสาธารณะโดยไม่ผ่านอนุมัติไม่ได้
-DO $$ BEGIN
-  UPDATE contents SET status = 'published' WHERE id = '99000000-0000-4000-8000-000000000002';
-  RAISE EXCEPTION 'FAIL 12: เผยแพร่โดยไม่อนุมัติได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 12: เผยแพร่เนื้อหาต้องผ่านการอนุมัติ';
-END $$;
-
--- 13. คำตอบ Canvas ต้องเป็นช่องของ Tool version เดียวกัน
-DO $$ BEGIN
-  INSERT INTO tool_versions (id, tool_id, version) VALUES
-    ('f2000000-0000-4000-8000-000000000099', 'f1000000-0000-4000-8000-000000000001', 99);
-  INSERT INTO tool_fields (id, tool_version_id, field_key, label, sort_order) VALUES
-    ('f3000000-0000-4000-8000-000000000099', 'f2000000-0000-4000-8000-000000000099', 'potential', 'ช่องทดสอบ', 1);
-  INSERT INTO canvas_field_values (canvas_revision_id, tool_version_id, tool_field_id, value_text) VALUES
-    ('f6000000-0000-4000-8000-000000000004', 'f2000000-0000-4000-8000-000000000001', 'f3000000-0000-4000-8000-000000000099', 'x');
-  RAISE EXCEPTION 'FAIL 13: ใส่คำตอบในช่องของ Tool version อื่นได้';
-EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'OK 13: คำตอบต้องตรงกับช่องของ Tool version ที่ Canvas ใช้';
-END $$;
-
--- 14. Canvas revision แก้ทับไม่ได้ (ต้องสร้าง revision ใหม่)
-DO $$ BEGIN
-  UPDATE canvas_field_values SET value_text = 'แก้ทับ'
-   WHERE canvas_revision_id = 'f6000000-0000-4000-8000-000000000001';
-  RAISE EXCEPTION 'FAIL 14: แก้ revision ทับได้';
-EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 14: Canvas revision แก้ทับไม่ได้';
-END $$;
-
--- 15. บทบาทระดับองค์กรต้องมีองค์กร และบทบาท platform ต้องไม่มีองค์กร
-DO $$ BEGIN
-  INSERT INTO role_assignments (user_id, role_id, role_scope, organization_id)
-  VALUES ('a1000000-0000-4000-8000-000000000007', 'c1000000-0000-4000-8000-000000000013', 'organization', NULL);
-  RAISE EXCEPTION 'FAIL 15: มอบบทบาทองค์กรโดยไม่ระบุองค์กรได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 15: บทบาทองค์กรต้องระบุองค์กร';
-END $$;
-
--- 16. ผู้บริหารไม่มีสิทธิ์ดูข้อมูลอ่อนไหว (ข้อ 31)
+-- 10. งาน AI ผิดพลาด → คืนเครดิตได้ และคืนได้ครั้งเดียว [5.7 #13]
 DO $$
-DECLARE n integer;
+DECLARE
+  used credit_ledger;
 BEGIN
-  SELECT count(*) INTO n
-  FROM role_assignments ra JOIN role_permissions rp ON rp.role_id = ra.role_id
-  JOIN permissions p ON p.code = rp.permission_code
-  WHERE ra.user_id = 'a1000000-0000-4000-8000-000000000006' AND ra.revoked_at IS NULL
-    AND (p.is_sensitive OR p.code IN ('org.students.view', 'coach.feedback.write'));
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 16: ผู้บริหารได้สิทธิ์อ่อนไหว % รายการ', n; END IF;
-  RAISE NOTICE 'OK 16: บทบาทผู้บริหารเห็นแค่ dashboard ข้อมูลรวม';
+  SELECT * INTO used FROM use_credit('a1000000-0000-4000-8000-000000000001', NULL, 'canvas_analysis', 1, 'canvas', 'check-10', NULL);
+  INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, lot_id, reverses_id, reason)
+  VALUES (used.holder_user_id, used.credit_type_code, 'return', 1, used.lot_id, used.id, 'งาน AI ผิดพลาด');
+  IF credit_balance('a1000000-0000-4000-8000-000000000001', NULL, 'canvas_analysis') <> 2 THEN
+    RAISE EXCEPTION 'FAIL 10: คืนเครดิตแล้วยอดไม่กลับมา';
+  END IF;
+  BEGIN
+    INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, lot_id, reverses_id, reason)
+    VALUES (used.holder_user_id, used.credit_type_code, 'return', 1, used.lot_id, used.id, 'คืนซ้ำ');
+    RAISE EXCEPTION 'FAIL 10: คืนเครดิตซ้ำได้';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  RAISE NOTICE 'OK 10: งาน AI ผิดพลาดคืนเครดิตได้ และคืนได้ครั้งเดียว';
 END $$;
 
--- 17–20. Row-Level Security: ทดสอบด้วย role ของแอป ไม่ใช่เจ้าของตาราง
+-- 11. คูปองผู้ซื้อการ์ดได้ครั้งเดียวต่อบัญชี (กดรหัสภายหลังไม่ได้ซ้ำ) [5.7 #10]
+DO $$ BEGIN
+  INSERT INTO credit_ledger (holder_user_id, credit_type_code, entry_type, amount, expires_at, reason)
+  VALUES ('a1000000-0000-4000-8000-000000000003', 'voucher.zoom30', 'grant', 1, now() + interval '12 months', 'ทดสอบได้คูปองซ้ำ');
+  RAISE EXCEPTION 'FAIL 11: ได้คูปองซ้ำ';
+EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'OK 11: คูปองผู้ซื้อการ์ดได้ครั้งเดียวต่อบัญชี';
+END $$;
+
+-- 12. สมุดเครดิตแก้ไม่ได้
+DO $$ BEGIN
+  UPDATE credit_ledger SET amount = 100 WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000001';
+  RAISE EXCEPTION 'FAIL 12: แก้สมุดเครดิตได้';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 12: สมุดเครดิตแก้ไม่ได้';
+END $$;
+
+-- 13. รายการในแพ็กเกจที่ออกแล้วแก้ไม่ได้ ต้องสร้างเวอร์ชันใหม่
+DO $$ BEGIN
+  UPDATE plan_version_items SET credit_amount = 99 WHERE credit_type_code = 'coach_session';
+  RAISE EXCEPTION 'FAIL 13: แก้แพ็กเกจเวอร์ชันเดิมได้';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 13: แพ็กเกจเวอร์ชันเดิมแก้ไม่ได้';
+END $$;
+
+-- 14. Pro รายเดือนไม่มี seat.free_zoom · Pro รายปีมี [5.7 #8]
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM plan_version_items WHERE part_id = 'c3000000-0000-4000-8000-000000000003' AND entitlement_code = 'seat.free_zoom')
+     OR NOT EXISTS (SELECT 1 FROM plan_version_items WHERE part_id = 'c3000000-0000-4000-8000-000000000002' AND entitlement_code = 'seat.free_zoom') THEN
+    RAISE EXCEPTION 'FAIL 14: สิทธิ์ที่นั่งฟรีของ Pro รายเดือน/รายปีไม่ถูกต้อง';
+  END IF;
+  RAISE NOTICE 'OK 14: Pro รายเดือนไม่มีที่นั่งฟรี Pro รายปีมี';
+END $$;
+
+-- 15. ห้องเรียน: สมาชิกฟรี 1 + โบนัสสมุด 1 = 2 ห้อง (ค่ามากสุดของพื้นฐาน + ผลรวมโบนัส) [5.7 #11]
+DO $$
+DECLARE
+  rooms numeric;
+BEGIN
+  INSERT INTO grants (holder_user_id, plan_version_id, part_id, source_type, source_batch_id, starts_at, ends_at, reason, created_by)
+  VALUES ('a1000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000008', 'c3000000-0000-4000-8000-000000000009',
+          'staff', gen_random_uuid(), now(), now() + interval '12 months', 'ทดสอบโบนัสห้องเรียน', 'a1000000-0000-4000-8000-000000000014');
+  SELECT coalesce(max(entitlement_value) FILTER (WHERE entitlement_code = 'classroom.limit'), 0)
+       + coalesce(sum(entitlement_value) FILTER (WHERE entitlement_code = 'classroom.bonus'), 0)
+    INTO rooms
+    FROM active_entitlements WHERE holder_user_id = 'a1000000-0000-4000-8000-000000000001';
+  IF rooms <> 2 THEN
+    RAISE EXCEPTION 'FAIL 15: จำนวนห้องเรียนได้ % ไม่ใช่ 2', rooms;
+  END IF;
+  RAISE NOTICE 'OK 15: สมาชิกฟรี 1 + โบนัสสมุด 1 = 2 ห้อง';
+END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- ข. ซื้อขาย รับเงิน และสต็อก
+-- ---------------------------------------------------------------------------
+
+-- 16. ราคาขั้นจำนวน (4 ชุดราคาปกติ, 5 ชุดราคาโรงเรียน) และราคาช่วงโปรโมชัน [6.9 #7]
+DO $$ BEGIN
+  IF unit_price('d1000000-0000-4000-8000-000000000001', 4) <> 50000
+     OR unit_price('d1000000-0000-4000-8000-000000000001', 5) <> 45000 THEN
+    RAISE EXCEPTION 'FAIL 16: ราคาขั้นจำนวนไม่ถูกต้อง';
+  END IF;
+  INSERT INTO prices (product_id, price_satang, min_quantity, valid_from, valid_until)
+  VALUES ('d1000000-0000-4000-8000-000000000001', 39000, 1, now() - interval '1 hour', now() + interval '1 day');
+  IF unit_price('d1000000-0000-4000-8000-000000000001', 1) <> 39000
+     OR unit_price('d1000000-0000-4000-8000-000000000001', 1, now() + interval '2 days') <> 50000
+     OR unit_price('d1000000-0000-4000-8000-000000000001', 5) <> 45000 THEN
+    RAISE EXCEPTION 'FAIL 16: ราคาช่วงโปรโมชันไม่ถูกต้อง';
+  END IF;
+  RAISE NOTICE 'OK 16: ราคาขั้นจำนวนและราคาช่วงโปรโมชันถูกต้อง';
+END $$;
+
+-- 17. ยอดคำสั่งซื้อต้องตรงสูตร: ยอดรวม = ก่อนส่วนลด − ส่วนลด + ค่าส่ง
+DO $$ BEGIN
+  INSERT INTO orders (order_number, buyer_user_id, subtotal_satang, discount_satang, shipping_satang, total_satang, amount_due_satang)
+  VALUES ('CHECK-17', 'a1000000-0000-4000-8000-000000000001', 50000, 0, 5000, 50000, 50000);
+  RAISE EXCEPTION 'FAIL 17: บันทึกยอดที่ไม่ตรงสูตรได้';
+EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 17: ยอดคำสั่งซื้อต้องตรงสูตร';
+END $$;
+
+-- 18. สถานะเดินตามลูกศรเท่านั้น: หลังแพ็กยกเลิกไม่ได้ · ก่อนแพ็กยกเลิกได้และบันทึกประวัติพร้อมผู้ทำ [6.9 #9]
+DO $$ BEGIN
+  BEGIN
+    UPDATE orders SET status = 'cancelled' WHERE order_number = 'SW-000001';
+    RAISE EXCEPTION 'FAIL 18: ยกเลิกคำสั่งซื้อที่ส่งของแล้วได้';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    UPDATE orders SET status = 'shipped' WHERE order_number = 'SW-000002';
+    RAISE EXCEPTION 'FAIL 18: ข้ามขั้นจากรอตรวจเงินไปส่งแล้วได้';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  PERFORM set_config('app.actor_user_id', 'a1000000-0000-4000-8000-000000000012', true);
+  PERFORM set_config('app.status_reason', 'ลูกค้าขอยกเลิก', true);
+  UPDATE orders SET status = 'cancelled' WHERE order_number = 'SW-000002';
+  IF NOT EXISTS (SELECT 1 FROM order_status_history h JOIN orders o ON o.id = h.order_id
+                  WHERE o.order_number = 'SW-000002' AND h.to_status = 'cancelled'
+                    AND h.actor_user_id = 'a1000000-0000-4000-8000-000000000012' AND h.reason = 'ลูกค้าขอยกเลิก') THEN
+    RAISE EXCEPTION 'FAIL 18: ไม่ได้บันทึกประวัติการเปลี่ยนสถานะ';
+  END IF;
+  PERFORM set_config('app.actor_user_id', '', true);
+  PERFORM set_config('app.status_reason', '', true);
+  RAISE NOTICE 'OK 18: สถานะเดินตามลูกศร หลังแพ็กยกเลิกไม่ได้ และบันทึกประวัติพร้อมผู้ทำ';
+END $$;
+
+-- 19. คำสั่งซื้อที่ชำระแล้วแก้ยอดเงินไม่ได้
+DO $$ BEGIN
+  UPDATE orders SET shipping_satang = 0, total_satang = 58000, amount_due_satang = 58000 WHERE order_number = 'SW-000005';
+  RAISE EXCEPTION 'FAIL 19: แก้ยอดคำสั่งซื้อที่ชำระแล้วได้';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 19: คำสั่งซื้อที่ชำระแล้วแก้ยอดเงินไม่ได้';
+END $$;
+
+-- 20. ระบบรับเงินส่งข้อความเดิมซ้ำ → บันทึกซ้ำไม่ได้ จึงไม่เปิดสิทธิ์ซ้ำ [6.9 #2]
+DO $$ BEGIN
+  INSERT INTO payment_events (provider, provider_event_id, event_type, payload)
+  VALUES ('opn', 'evnt_test_000005', 'charge.complete', '{}');
+  RAISE EXCEPTION 'FAIL 20: บันทึกข้อความซ้ำได้';
+EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'OK 20: ข้อความจากระบบรับเงินซ้ำบันทึกซ้ำไม่ได้';
+END $$;
+
+-- 21. รายการจ่ายเงินที่สำเร็จแล้วแก้ยอดหรือเปลี่ยนสถานะไม่ได้
+DO $$ BEGIN
+  BEGIN
+    UPDATE payments SET amount_satang = 1 WHERE id = '63000000-0000-4000-8000-000000000005';
+    RAISE EXCEPTION 'FAIL 21: แก้ยอดรายการจ่ายเงินได้';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE payments SET status = 'failed' WHERE id = '63000000-0000-4000-8000-000000000005';
+    RAISE EXCEPTION 'FAIL 21: เปลี่ยนสถานะรายการที่จ่ายสำเร็จแล้วได้';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  RAISE NOTICE 'OK 21: รายการจ่ายเงินที่สำเร็จแล้วแก้ยอดหรือสถานะไม่ได้';
+END $$;
+
+-- 22. โอนแนบสลิปจะเป็น "จ่ายสำเร็จ" ได้ต้องมีทีมงานยืนยัน [6.9 #6]
+DO $$ BEGIN
+  INSERT INTO payments (order_id, provider, method, amount_satang, status)
+  VALUES ('61000000-0000-4000-8000-000000000003', 'bank_transfer', 'transfer', 5000, 'succeeded');
+  RAISE EXCEPTION 'FAIL 22: ยืนยันการโอนโดยไม่มีผู้ตรวจได้';
+EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 22: การโอนต้องมีทีมงานยืนยันก่อนเป็นจ่ายสำเร็จ';
+END $$;
+
+-- 23. คืนเงินรวมเกินยอดที่จ่ายไม่ได้ [6.9 #13]
+DO $$ BEGIN
+  INSERT INTO refunds (payment_id, amount_satang, method, reason, requested_by)
+  VALUES ('63000000-0000-4000-8000-000000000005', 60000, 'manual_transfer', 'ยกเลิกที่นั่ง', 'a1000000-0000-4000-8000-000000000012');
+  BEGIN
+    INSERT INTO refunds (payment_id, amount_satang, method, reason, requested_by)
+    VALUES ('63000000-0000-4000-8000-000000000005', 3001, 'manual_transfer', 'คืนเพิ่ม', 'a1000000-0000-4000-8000-000000000012');
+    RAISE EXCEPTION 'FAIL 23: คืนเงินรวมเกินยอดที่จ่ายได้';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  RAISE NOTICE 'OK 23: คืนเงินรวมเกินยอดที่จ่ายไม่ได้';
+END $$;
+
+-- 24. สต็อกเหลือ 1 ชิ้น 2 คำสั่งซื้อกันของพร้อมกัน → ได้คำสั่งซื้อเดียว · กันของที่หมดเวลาคืนสต็อกเอง [6.9 #10]
+DO $$
+DECLARE
+  first_hold uuid;
+BEGIN
+  INSERT INTO products (id, code, product_type, name, tracks_stock, is_on_sale)
+  VALUES ('d1000000-0000-4000-8000-000000000099', 'check_last_item', 'physical', 'สินค้าทดสอบชิ้นสุดท้าย', true, true);
+  INSERT INTO inventory_movements (product_id, quantity, movement_type) VALUES ('d1000000-0000-4000-8000-000000000099', 1, 'receive');
+  first_hold := hold_stock('d1000000-0000-4000-8000-000000000099', '61000000-0000-4000-8000-000000000002', 1, now() + interval '1 hour');
+  BEGIN
+    PERFORM hold_stock('d1000000-0000-4000-8000-000000000099', '61000000-0000-4000-8000-000000000003', 1, now() + interval '1 hour');
+    RAISE EXCEPTION 'FAIL 24: ชิ้นสุดท้ายถูกกันได้ 2 ครั้ง';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  UPDATE inventory_holds SET expires_at = now() - interval '1 second' WHERE id = first_hold;
+  IF (SELECT available FROM product_stock WHERE product_id = 'd1000000-0000-4000-8000-000000000099') <> 1 THEN
+    RAISE EXCEPTION 'FAIL 24: กันของที่หมดเวลาแล้วไม่คืนสต็อก';
+  END IF;
+  RAISE NOTICE 'OK 24: ชิ้นสุดท้ายกันได้คำสั่งซื้อเดียว และกันของที่หมดเวลาคืนสต็อกเอง';
+END $$;
+
+-- 25. กองที่นั่งเต็มแล้วจองเพิ่มไม่ได้ (กองทดสอบนี้ใช้ต่อในข้อ 35)
+INSERT INTO seat_pools (id, event_id, name, capacity)
+VALUES ('f2000000-0000-4000-8000-000000000099', 'f1000000-0000-4000-8000-000000000001', 'กองทดสอบ 1 ที่', 1);
+INSERT INTO seat_bookings (seat_pool_id, user_id, booked_by, status)
+VALUES ('f2000000-0000-4000-8000-000000000099', 'a1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', 'booked');
+DO $$ BEGIN
+  INSERT INTO seat_bookings (seat_pool_id, user_id, booked_by, status)
+  VALUES ('f2000000-0000-4000-8000-000000000099', 'a1000000-0000-4000-8000-000000000002', 'a1000000-0000-4000-8000-000000000002', 'booked');
+  RAISE EXCEPTION 'FAIL 25: จองเกินจำนวนที่นั่งได้';
+EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 25: กองที่นั่งเต็มแล้วจองเพิ่มไม่ได้';
+END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- ค. เอกสารการเงินและรหัสในกล่อง
+-- ---------------------------------------------------------------------------
+
+-- 26. เลขที่เอกสารเรียงต่อเนื่องและไม่ซ้ำ [6.9 #14]
+DO $$
+DECLARE
+  n1 integer := next_document_number('credit_note', 2599);
+  n2 integer := next_document_number('credit_note', 2599);
+BEGIN
+  IF n1 <> 1 OR n2 <> 2 THEN
+    RAISE EXCEPTION 'FAIL 26: เลขที่เอกสารไม่ต่อเนื่อง (% , %)', n1, n2;
+  END IF;
+  BEGIN
+    INSERT INTO financial_documents (doc_type, seq_year, seq_number, doc_number, order_id, buyer_snapshot, items_snapshot,
+                                     subtotal_satang, total_satang, amount_in_words)
+    SELECT doc_type, seq_year, seq_number, doc_number || '-dup', order_id, buyer_snapshot, items_snapshot,
+           subtotal_satang, total_satang, amount_in_words
+      FROM financial_documents WHERE id = '65000000-0000-4000-8000-000000000001';
+    RAISE EXCEPTION 'FAIL 26: ออกเลขที่เอกสารซ้ำได้';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  RAISE NOTICE 'OK 26: เลขที่เอกสารเรียงต่อเนื่องและไม่ซ้ำ';
+END $$;
+
+-- 27. เอกสารที่ออกแล้วแก้ยอดไม่ได้ · ยกเลิกได้ครั้งเดียวพร้อมเหตุผล
+DO $$ BEGIN
+  BEGIN
+    UPDATE financial_documents SET total_satang = 1 WHERE id = '65000000-0000-4000-8000-000000000001';
+    RAISE EXCEPTION 'FAIL 27: แก้ยอดเอกสารที่ออกแล้วได้';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  UPDATE financial_documents
+     SET voided_at = now(), voided_by = 'a1000000-0000-4000-8000-000000000012', void_reason = 'ทดสอบยกเลิก'
+   WHERE id = '65000000-0000-4000-8000-000000000002';
+  BEGIN
+    UPDATE financial_documents SET void_reason = 'แก้เหตุผล' WHERE id = '65000000-0000-4000-8000-000000000002';
+    RAISE EXCEPTION 'FAIL 27: แก้เหตุผลการยกเลิกได้';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RAISE NOTICE 'OK 27: เอกสารที่ออกแล้วแก้ไม่ได้ ยกเลิกได้ครั้งเดียว';
+END $$;
+
+-- 28. ใบเสนอราคาครบ 7 วันขึ้นในกล่องงาน "ควรโทรตาม" · โทรแล้วเปลี่ยนเป็น "โทรตามแล้ว" [6.9 #16]
+DO $$ BEGIN
+  IF (SELECT status FROM quotation_statuses WHERE id = '65000000-0000-4000-8000-000000000003') <> 'followup_due' THEN
+    RAISE EXCEPTION 'FAIL 28: ใบเสนอราคาที่ออกมา 8 วันไม่ขึ้นว่าควรโทรตาม';
+  END IF;
+  INSERT INTO quotation_followups (quotation_id, called_by, outcome)
+  VALUES ('65000000-0000-4000-8000-000000000003', 'a1000000-0000-4000-8000-000000000012', 'โรงเรียนรอเสนอผู้อำนวยการ');
+  IF (SELECT status FROM quotation_statuses WHERE id = '65000000-0000-4000-8000-000000000003') <> 'called' THEN
+    RAISE EXCEPTION 'FAIL 28: โทรตามแล้วสถานะไม่เปลี่ยน';
+  END IF;
+  RAISE NOTICE 'OK 28: ใบเสนอราคาเตือนให้โทรตาม และเปลี่ยนสถานะเมื่อโทรแล้ว';
+END $$;
+
+-- 29. รหัสที่กดแล้วกดซ้ำไม่ได้ · รหัสที่ยกเลิกแล้วกดไม่ได้
+DO $$ BEGIN
+  BEGIN
+    UPDATE redeem_codes SET redeemed_by = 'a1000000-0000-4000-8000-000000000001'
+     WHERE id = 'e2000000-0000-4000-8000-000000000001';
+    RAISE EXCEPTION 'FAIL 29: กดรหัสที่ใช้แล้วซ้ำได้';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE redeem_codes
+       SET redeemed_by = 'a1000000-0000-4000-8000-000000000001', redeemed_at = now(), grant_batch_id = gen_random_uuid()
+     WHERE id = 'e2000000-0000-4000-8000-000000000003';
+    RAISE EXCEPTION 'FAIL 29: กดรหัสที่ยกเลิกแล้วได้';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  RAISE NOTICE 'OK 29: รหัสที่กดแล้วกดซ้ำไม่ได้ และรหัสที่ยกเลิกแล้วกดไม่ได้';
+END $$;
+
+-- 30. ส่งออกรหัสให้โรงพิมพ์ได้ครั้งเดียว (ส่งซ้ำต้องผ่านสิทธิ์พิเศษและบันทึกใน audit_logs)
+DO $$ BEGIN
+  UPDATE code_batches SET exported_at = now() WHERE id = 'e1000000-0000-4000-8000-000000000001';
+  RAISE EXCEPTION 'FAIL 30: บันทึกวันส่งออกทับได้';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 30: วันส่งออกรหัสให้โรงพิมพ์บันทึกได้ครั้งเดียว';
+END $$;
+
+-- 31. สลิปรับเฉพาะรูปภาพหรือ PDF
+DO $$ BEGIN
+  INSERT INTO files (purpose, storage_key, content_type, size_bytes)
+  VALUES ('payment_slip', 'slips/check-31.txt', 'text/plain', 10);
+  RAISE EXCEPTION 'FAIL 31: รับสลิปที่เป็นไฟล์ข้อความได้';
+EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 31: สลิปรับเฉพาะรูปภาพหรือ PDF';
+END $$;
+
+-- 32. บันทึกการเปลี่ยนแปลงและบันทึกการเปิดดูข้อมูลส่วนบุคคลลบหรือแก้ไม่ได้
+DO $$ BEGIN
+  BEGIN
+    DELETE FROM audit_logs;
+    RAISE EXCEPTION 'FAIL 32: ลบ audit_logs ได้';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    UPDATE pii_access_logs SET field = 'phone';
+    RAISE EXCEPTION 'FAIL 32: แก้ pii_access_logs ได้';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RAISE NOTICE 'OK 32: บันทึกการเปลี่ยนแปลงและการเปิดดูข้อมูลส่วนบุคคลลบหรือแก้ไม่ได้';
+END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- ง. Row-Level Security (ต้องรัน rls.sql ก่อน)
+-- ---------------------------------------------------------------------------
+
 SET LOCAL ROLE skillwise_app;
 
-SELECT set_config('app.user_id', 'a1000000-0000-4000-8000-000000000004', true);  -- ครูในโรงเรียน
-DO $$ BEGIN
-  IF (SELECT count(*) FROM students) <> 10 THEN RAISE EXCEPTION 'FAIL 17: ครูในองค์กรเห็นนักเรียนไม่ครบ'; END IF;
-  RAISE NOTICE 'OK 17: ครูในองค์กรเห็นนักเรียนขององค์กร 10 คน';
+-- 33. ครูเห็นเฉพาะคำสั่งซื้อของตัวเอง · ทีมงานที่ผ่านการตรวจสิทธิ์เห็นทั้งหมด
+DO $$
+DECLARE
+  mine integer;
+  all_orders integer;
+BEGIN
+  PERFORM set_config('app.user_id', 'a1000000-0000-4000-8000-000000000003', true);
+  SELECT count(*) INTO mine FROM orders;
+  PERFORM set_config('app.is_staff', 'on', true);
+  SELECT count(*) INTO all_orders FROM orders;
+  PERFORM set_config('app.is_staff', '', true);
+  IF mine <> 2 OR all_orders <> 4 THEN
+    RAISE EXCEPTION 'FAIL 33: ครูเห็นคำสั่งซื้อ % รายการ ทีมงานเห็น % รายการ', mine, all_orders;
+  END IF;
+  RAISE NOTICE 'OK 33: ครูเห็นเฉพาะคำสั่งซื้อของตัวเอง ทีมงานเห็นทั้งหมด';
 END $$;
 
-SELECT set_config('app.user_id', 'a1000000-0000-4000-8000-000000000007', true);  -- ครูอิสระ
+-- 34. ครูเห็นเฉพาะเครดิตของตัวเอง แม้จะอ่านผ่าน view
 DO $$ BEGIN
-  IF (SELECT count(*) FROM students) <> 0 THEN RAISE EXCEPTION 'FAIL 18: คนนอกองค์กรเห็นนักเรียน'; END IF;
-  RAISE NOTICE 'OK 18: คนนอกองค์กรไม่เห็นนักเรียนเลย';
+  PERFORM set_config('app.user_id', 'a1000000-0000-4000-8000-000000000005', true);
+  IF EXISTS (SELECT 1 FROM credit_lots WHERE holder_user_id <> 'a1000000-0000-4000-8000-000000000005')
+     OR credit_balance('a1000000-0000-4000-8000-000000000002', NULL, 'coach_session') <> 0 THEN
+    RAISE EXCEPTION 'FAIL 34: ครูเห็นเครดิตของคนอื่น';
+  END IF;
+  RAISE NOTICE 'OK 34: ครูเห็นเฉพาะเครดิตของตัวเอง แม้อ่านผ่าน view';
 END $$;
 
-SELECT set_config('app.user_id', 'a1000000-0000-4000-8000-000000000003', true);  -- โค้ช
+-- 35. ที่นั่งเต็มยังกันได้ แม้ครูมองไม่เห็นการจองของคนอื่น
 DO $$ BEGIN
-  IF (SELECT count(*) FROM students) <> 3 THEN RAISE EXCEPTION 'FAIL 19: โค้ชเห็นนักเรียนผิดจำนวน'; END IF;
-  RAISE NOTICE 'OK 19: โค้ชเห็นเฉพาะนักเรียน 3 คนที่อยู่ใน case ของครูที่ดูแล';
-END $$;
-
-SELECT set_config('app.user_id', 'a1000000-0000-4000-8000-000000000003', true);
-DO $$ BEGIN
-  INSERT INTO students (organization_id, first_name) VALUES ('b1000000-0000-4000-8000-000000000001', 'ทดสอบ');
-  RAISE EXCEPTION 'FAIL 20: โค้ชเพิ่มนักเรียนได้';
-EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 20: โค้ชเพิ่มนักเรียนในองค์กรที่ไม่ได้เป็นสมาชิกไม่ได้';
+  PERFORM set_config('app.user_id', 'a1000000-0000-4000-8000-000000000006', true);
+  INSERT INTO seat_bookings (seat_pool_id, user_id, booked_by, status)
+  VALUES ('f2000000-0000-4000-8000-000000000099', 'a1000000-0000-4000-8000-000000000006', 'a1000000-0000-4000-8000-000000000006', 'booked');
+  RAISE EXCEPTION 'FAIL 35: จองเกินจำนวนที่นั่งได้เมื่อมองไม่เห็นการจองของคนอื่น';
+EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 35: ที่นั่งเต็มยังกันได้แม้มองไม่เห็นการจองของคนอื่น';
 END $$;
 
 RESET ROLE;
-
--- 21. view ข้อมูลรวมของผู้บริหารไม่มีคอลัมน์ชื่อคน
-DO $$
-DECLARE n integer;
-BEGIN
-  SELECT count(*) INTO n FROM information_schema.columns
-   WHERE table_name = 'org_activity_summary' AND column_name ~ '(name|student|note|body)';
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 21: view ข้อมูลรวมมีคอลัมน์รายคน'; END IF;
-  RAISE NOTICE 'OK 21: org_activity_summary มีแค่ตัวเลขรวม';
-END $$;
-
--- 22. นัดเดียวกันบันทึก "ทำแล้ว" ซ้ำไม่ได้
-DO $$ BEGIN
-  INSERT INTO practice_logs (action_item_id, practice_session_id, author_user_id, outcome, happened_on)
-  VALUES ('84000000-0000-4000-8000-000000000001', '85000000-0000-4000-8000-000000000001',
-          'a1000000-0000-4000-8000-000000000004', 'done', (now() AT TIME ZONE 'Asia/Bangkok')::date - 17);
-  RAISE EXCEPTION 'FAIL 22: บันทึกทำแล้วซ้ำในนัดเดียวกันได้';
-EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'OK 22: นัดหนึ่งครั้งมีบันทึกทำแล้วได้แถวเดียว';
-END $$;
-
--- 23. รายการที่ผูกกับบันทึกแก้ทับไม่ได้ ต้องเอาออกแล้วเพิ่มใหม่
-DO $$ BEGIN
-  UPDATE practice_log_students SET observation = 'แก้ทับ' WHERE id = '86100000-0000-4000-8000-000000000001';
-  RAISE EXCEPTION 'FAIL 23: แก้ข้อสังเกตทับได้';
-EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'OK 23: รายการที่ผูกกับบันทึกแก้ทับไม่ได้';
-END $$;
-
--- 24. เอานักเรียนออกจากบันทึกแล้ว ประวัติยังอยู่
-DO $$
-DECLARE total integer; active integer;
-BEGIN
-  SELECT count(*), count(*) FILTER (WHERE removed_at IS NULL) INTO total, active
-  FROM practice_log_students
-  WHERE practice_log_id = '86000000-0000-4000-8000-000000000002' AND student_id = 'e1000000-0000-4000-8000-000000000003';
-  IF total <> 2 OR active <> 1 THEN RAISE EXCEPTION 'FAIL 24: มี % แถว ใช้งานอยู่ % แถว (คาดว่า 2 และ 1)', total, active; END IF;
-  RAISE NOTICE 'OK 24: แก้รายการที่ผูกกับบันทึกแล้วประวัติเดิมยังอยู่';
-END $$;
-
--- 25. version ที่เลือกใช้ต้องเป็นของแผนเดียวกัน
-DO $$ BEGIN
-  INSERT INTO development_plans (id, owner_user_id, title) VALUES
-    ('72000000-0000-4000-8000-000000000099', 'a1000000-0000-4000-8000-000000000007', 'แผนทดสอบ');
-  INSERT INTO development_plan_versions (id, development_plan_id, version_no, source, created_by) VALUES
-    ('73000000-0000-4000-8000-000000000099', '72000000-0000-4000-8000-000000000099', 1, 'teacher', 'a1000000-0000-4000-8000-000000000007');
-  UPDATE development_plans SET current_version_id = '73000000-0000-4000-8000-000000000099'
-   WHERE id = '72000000-0000-4000-8000-000000000001';
-  RAISE EXCEPTION 'FAIL 25: เลือก version ของแผนอื่นได้';
-EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'OK 25: version ที่เลือกใช้ต้องเป็นของแผนเดียวกัน';
-END $$;
-
--- 26. งานแจ้งเตือนต้องมีผู้รับแบบเดียว (บัญชีผู้ใช้ หรืออีเมลของคนที่ยังไม่มีบัญชี)
-DO $$ BEGIN
-  INSERT INTO notification_jobs (template_id, channel, dedupe_key, scheduled_for)
-  VALUES ('97000000-0000-4000-8000-000000000004', 'email', 'test:no-recipient', now());
-  RAISE EXCEPTION 'FAIL 26: สร้างงานแจ้งเตือนที่ไม่มีผู้รับได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 26: งานแจ้งเตือนต้องมีผู้รับ';
-END $$;
-
--- 27. กิจกรรมทำครั้งเดียวต้องระบุวัน
-DO $$ BEGIN
-  INSERT INTO action_items (action_plan_id, item_type, title)
-  VALUES ('83000000-0000-4000-8000-000000000001', 'custom', 'ไม่มีวันและไม่มี RRULE');
-  RAISE EXCEPTION 'FAIL 27: สร้างกิจกรรมที่ไม่มีทั้งวันและ RRULE ได้';
-EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK 27: กิจกรรมทำครั้งเดียวต้องระบุวัน';
-END $$;
-
-SELECT organization_id, active_members, teachers_with_cases, canvases, active_action_plans, practice_done_30d
-FROM org_activity_summary ORDER BY active_members DESC;
 
 ROLLBACK;

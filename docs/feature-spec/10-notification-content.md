@@ -1,5 +1,9 @@
 # การแจ้งเตือน และเนื้อหาสาธารณะ
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **Phase 1** ข้อความแจ้งเตือน LINE และอีเมลตาม `docs/system-plan.md` ส่วนที่ 8
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Notification ในระบบ (email + LINE push) เตือนตามแผนลงมือทำ = **Should** (#18) · รับข้อความ LINE ผ่าน webhook = **Later** (#18b) · หน้าเว็บสาธารณะ + Content ที่แอดมินจัดการเอง = **Should** (#18c) — อ้างหัวข้อ 8 ของ `docs/sila5school-study.md`
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `library/rgt/providers/MailServiceProvider.php` — ตั้ง SMTP mailer
@@ -153,7 +157,7 @@ stateDiagram-v2
 
 ## 8. สิ่งที่ห้ามทำตาม
 
-- งานแจ้งเตือนแยกอยู่ระบบอื่นที่ใช้ฐานข้อมูลร่วม (กฎ, คิว, ตัวส่ง) — SkillWise ต้องจบในระบบเดียว (60.10.4, study 6.3)
+- งานแจ้งเตือนแยกอยู่ระบบอื่นที่ใช้ฐานข้อมูลร่วม (กฎ, คิว, ตัวส่ง) — SkillwisE ต้องจบในระบบเดียว (60.10.4, study 6.3)
 - อีเมลส่งใน request ไม่มีคิว / retry / log และไม่สนผลลัพธ์ — `teamController.php:311-319`
 - กันส่งซ้ำด้วย index ที่ไม่ใช่ UNIQUE ทำให้ส่งซ้ำได้เมื่อมีงานพร้อมกัน — `sila5school.sql:973-975`
 - ปลายทางของลิงก์ผูกกับกฎ ไม่ใช่กับข้อความแต่ละชิ้น: แก้ URL ของกฎแล้วลิงก์เก่าเปลี่ยนตาม และ URL ของ timeline หาย
@@ -164,13 +168,15 @@ stateDiagram-v2
 - ชื่อคอลัมน์ผู้รับเป็น `mnl_email` แต่ใช้กับทุกช่องทาง
 - ข่าว: สถานะ "ซ่อน" กันแค่ในรายการ · ไม่มีขั้นอนุมัติใน repo · HTML ดิบจาก DB แสดงตรง · นับยอดเปิดทับ field audit · สถิติหน้าแรกกรอกมือ
 - hard-code id ประเภทข่าว (1–4, 5, ≤ 6) และ URL หน้าแรกเป็น fallback ของ redirect — `indexController.php:43-46, 171`, `detailsController.php:57`, `redirectController.php:70`
-- ประเภทงานแจ้งเตือนผูกกับอบรมและการสมัครโครงการของ Sila5School (`mrn_rule_type` 4 ค่า) — ไม่ใช่แกนของ SkillWise
+- ประเภทงานแจ้งเตือนผูกกับอบรมและการสมัครโครงการของ Sila5School (`mrn_rule_type` 4 ค่า) — ไม่ใช่แกนของ SkillwisE
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise |
+| ระบบเดิม | SkillwisE |
 |---|---|
 | กฎ 3 แหล่ง (`mail_notification_rule`, `mail_round_notification`, `mail_rule_timeline`) | ค่าเตือนบน `action_items` (`reminder_offset_minutes` + `recurrence_rule`) และ occurrence ใน `practice_sessions` → BullMQ scheduler สร้าง `notification_jobs` · กฎระดับระบบเก็บเป็น config หรือ template |
 | `mail_task_queue` | `notification_jobs` (`channel` email/line/in_app, ผู้รับเป็น `user_id` · อีเมลดิบใน `recipient_email` ใช้เฉพาะคำเชิญถึงคนที่ยังไม่มีบัญชี (ข้อ 7), `scheduled_for`, `status`, `attempts`, `dedupe_key` UNIQUE, `payload`, `practice_session_id`) |
@@ -197,7 +203,7 @@ stateDiagram-v2
 6. ข้อความที่ออกไปทาง LINE/email ไม่ใส่ชื่อนักเรียนหรือเนื้อหา reflection / coach feedback ใส่แค่ลิงก์กลับมาดูในระบบที่ตรวจสิทธิ์ (ข้อ 31, 60.2)
 7. อีเมลระบบ (เช่นคำเชิญ) เข้าคิวและมี event และหน้าจอบอกผลการส่งจริง · อีเมลถึงคนที่ยังไม่มีบัญชีใช้ `notification_jobs.recipient_email` + `invitation_id` แทน `user_id` (CHECK ให้มีผู้รับแบบเดียว และใช้ได้กับช่องทาง email เท่านั้น) · ผลการส่งดูจาก `notification_events` ของงานนั้น
 8. Content: ไม่มีอะไรขึ้นสาธารณะโดยไม่ผ่านการอนุมัติ · API สาธารณะคืนเฉพาะสถานะ published (กันที่ API ไม่ใช่แค่ในรายการ) · sanitize HTML ฝั่ง server หรือใช้ block แบบมีโครงสร้าง · slug UNIQUE · ตั้งเวลาเผยแพร่ได้ (`publish_at`) · นับยอดเปิดแยก ไม่แตะ `updated_at` (ที่เก็บยอดเปิดยังไม่มีใน schema MVP) · ประเภท content ตั้งค่าได้ (`content_type` เป็นข้อความ) ไม่ hard-code id
-9. Free Layer (ข้อ 27) ใช้ `contents` เป็นฐาน · ไม่ต้องใช้คำ "ศีล 5 / คุณธรรม / ความดี" เป็นข้อความหลัก และเลี่ยงการสื่อว่า SkillWise มีแค่เรื่องศีล 5 (ข้อ 9, 10.2)
+9. Free Layer (ข้อ 27) ใช้ `contents` เป็นฐาน · ไม่ต้องใช้คำ "ศีล 5 / คุณธรรม / ความดี" เป็นข้อความหลัก และเลี่ยงการสื่อว่า SkillwisE มีแค่เรื่องศีล 5 (ข้อ 9, 10.2)
 10. ถ้าทำหลังบ้านสั่งงานด้วยแชทในอนาคต ต้องยืนยันก่อนเผยแพร่และใช้สิทธิ์ + audit ชุดเดียวกับหน้าแอดมิน (60.10.7)
 11. สร้าง QR ภายในระบบ ไม่ส่ง URL ให้บริการภายนอก
 

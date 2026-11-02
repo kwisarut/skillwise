@@ -1,5 +1,9 @@
 # ตัวตนผู้ใช้: Login Google, Remember-me, Session, โปรไฟล์และความยินยอม, Login-as, ผูกบัญชี LINE
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **Phase 1** บัญชีเดียวผูก Google + LINE และเก็บความยินยอม ตาม `docs/system-plan.md` ส่วนที่ 7 · login-as ไม่อยู่ในรายการ Phase 1
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Must (อ้างหัวข้อ 8 ของ `docs/sila5school-study.md` ข้อ #1 ตัวตน · ข้อ #16 login-as ที่มี audit) · ส่วนส่งข้อความ LINE จริงเป็น Should (#18)
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `module/user/controller/loginController.php`, `logoutController.php`, `profileController.php`
@@ -130,11 +134,13 @@ stateDiagram-v2
 - OTP เทียบด้วย `!=` แบบหลวม ไม่จำกัดครั้ง และบังคับ OTP ทาง SMS (study หัวข้อ 8 "สิ่งที่ไม่นำมา")
 - เก็บที่อยู่จัดส่งพัสดุไว้ที่ข้อมูลบุคคล (เฉพาะการส่งสื่อของ Sila5School)
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| เดิม | SkillWise |
+| เดิม | SkillwisE |
 |---|---|
 | `user` (บัญชี) + ส่วนตัวตนใน `person` | `users` (ชื่อที่แสดง ชื่อ-นามสกุล รูป เบอร์ สถานะบัญชี) · ตัวตนไม่มีโรงเรียนหรือตำแหน่ง |
 | `user_google_id`, `user_gmail`, `user_line_*` | `user_identities` แถวละ provider: `provider` (`google` / `line`), `provider_subject`, `email_at_provider`, `can_receive_messages` (LINE ส่ง push ได้), `linked_at`, `unlinked_at` · unique (`provider`, `provider_subject`) และ unique (`user_id`, `provider`) เฉพาะแถวที่ยังไม่ unlink · ไม่เก็บสถานะยืนยัน email (ตรวจจาก provider ตอน login) · รูปเก็บที่ `users.avatar_url` |
@@ -170,7 +176,7 @@ stateDiagram-v2
 
 ## 10. คำถามที่ยัง OPEN
 
-1. ค่า idle timeout / อายุ remember-me / absolute lifetime ของ SkillWise
+1. ค่า idle timeout / อายุ remember-me / absolute lifetime ของ SkillwisE
 2. ช่วงสวมสิทธิ์ให้แก้ไขข้อมูลได้หรือดูอย่างเดียว และสวมสิทธิ์แอดมินคนอื่นได้หรือไม่ (study หัวข้อ 8 #16 กำหนดแค่ว่าต้องมี audit · ข้อ 60.7 ไม่ได้พูดถึง login-as โดยตรง)
 3. ผู้ใช้ 1 คนผูก LINE ได้กี่บัญชี (schema ร่างไว้ provider ละ 1 identity ต่อผู้ใช้) และถ้า LINE ที่ผูกอยู่กับบัญชีอื่น จะให้ย้ายได้หรือต้องให้แอดมินจัดการ
 4. login ครั้งแรกด้วย LINE (ไม่มี email) จะจับคู่กับคำเชิญทางอีเมลอย่างไร

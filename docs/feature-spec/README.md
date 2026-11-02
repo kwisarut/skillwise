@@ -1,29 +1,33 @@
 # Feature spec จากระบบ Sila5School
 
-spec ชุดนี้เขียนจากการอ่านโค้ด PHP ของ Sila5School ทีละบรรทัด เพื่อให้ทีมหรือ AI ที่ช่วยเขียนโค้ดนำแนวคิดไปสร้างใหม่ใน SkillWise (TypeScript + PostgreSQL) ได้ถูกต้อง
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2)
+> SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md` ไม่ดัดแปลงหรือต่อยอดจากโค้ด ตาราง หรือ flow ของ Sila5School
+> ใช้ spec ชุดนี้เปิดดูว่าระบบเดิมเคยทำอะไร และอะไรห้ามทำตาม (หัวข้อ 8 ของแต่ละไฟล์) เท่านั้น
 
-- **ใช้ทำอะไร:** เป็นต้นแบบ**แนวคิด**และ business rule · โค้ด production ของ SkillWise ต้องเขียนใหม่ตาม Context ข้อ 60.5 (ข้อ 60.1, 60.11)
-- **ขอบเขต:** ฟีเจอร์ Must + Should ในหัวข้อ 8 ของ `docs/sila5school-study.md`
+spec ชุดนี้เขียนจากการอ่านโค้ด PHP ของ Sila5School ทีละบรรทัด ก่อนที่ทีมจะมีภาพปลายทาง UI และแผนระบบ (Context ข้อ 60.13)
+
+- **ใช้ทำอะไร:** ดูว่าระบบเดิมเคยทำอะไร และอะไรห้ามทำตาม · โค้ด production ของ SkillwisE ต้องเขียนใหม่ตาม Context ข้อ 60.5 (ข้อ 60.1, 60.11)
+- **ระดับ Must / Should และหัวข้อ 9 ในแต่ละไฟล์** เขียนก่อนข้อ 60.13 จึงถูกแทนด้วยแผนระบบแล้ว ดูสถานะปัจจุบันในตารางข้างล่าง
 - **การอ้างอิง:**
   - `path:line` ทุกจุดเป็น path ใน repo เดิม (`RGTCenter/sila5school` commit `88a09c75`)
   - สำเนาโค้ดเก็บในเครื่องที่ `reference/sila5school/` ใช้ path เดียวกัน
   - โฟลเดอร์ `reference/` ไม่ขึ้น GitHub เพราะ repo ต้นทางเป็น private · ขอสำเนาจากทีม
-- **ตารางใหม่ที่อ้างในหัวข้อ 9 ของแต่ละไฟล์:** อยู่ใน `docs/database/schema.sql`
+- **ตารางที่หัวข้อ 9 อ้างถึง** อยู่ในร่างฐานข้อมูลเดิม (git commit `b38ad71`) ซึ่งเอาออกแล้ว · ร่างปัจจุบันอยู่ที่ `docs/database/`
 
-## สารบัญ
+## สารบัญและสถานะใน SkillwisE
 
-| # | ไฟล์ | ฟีเจอร์ | ระดับ | ตารางหลักใน SkillWise |
-|---|---|---|---|---|
-| 01 | [01-identity-login-line.md](01-identity-login-line.md) | Login Google, remember-me, consent, login-as, ผูก LINE | Must | `users`, `user_identities`, `auth_sessions`, `user_consents` |
-| 02 | [02-organization-team.md](02-organization-team.md) | สมัครองค์กร, เชิญครู, บทบาทในทีม, ห้องที่ครูดูแล | Must | `organizations`, `memberships`, `invitations`, `role_assignments`, `membership_org_units` |
-| 03 | [03-students.md](03-students.md) | บันทึกนักเรียน, import Excel | Must | `students`, `student_enrollments`, `import_jobs` |
-| 04 | [04-canvas.md](04-canvas.md) | Canvas 7 ช่อง, สถานะคะแนน, เกณฑ์พร้อมทำแผน | Must | `cases`, `canvases`, `canvas_revisions`, `canvas_feedbacks` |
-| 05 | [05-ai-plan-synthesis.md](05-ai-plan-synthesis.md) | AI สังเคราะห์ Canvas เป็นแผน, โควตา | Must | `ai_jobs`, `usage_ledger` |
-| 06 | [06-development-plan.md](06-development-plan.md) | แผนพัฒนาศักยภาพ, ส่งตรวจ, PDF | Must · PDF = Should | `development_plan_versions`, `plan_reviews`, `generated_documents` |
-| 07 | [07-action-plan.md](07-action-plan.md) | แปลงเป็นแผนลงมือทำ, กิจวัตร, to-do รายสัปดาห์ | Must | `action_plans`, `action_items`, `practice_sessions`, `practice_templates` |
-| 08 | [08-practice-log-story.md](08-practice-log-story.md) | บันทึกทำแล้ว/เลื่อน, รูปหลักฐาน, เรื่องราว | Must · การแชร์ = Later | `practice_logs`, `practice_log_*` |
-| 09 | [09-outcome-report-dashboard.md](09-outcome-report-dashboard.md) | Timeline รายเด็ก, รายงาน, dashboard | Should | `student_progress_summaries`, view `org_activity_summary` |
-| 10 | [10-notification-content.md](10-notification-content.md) | แจ้งเตือน email/LINE, ลิงก์นับคลิก, ข่าวหน้าเว็บ | Should | `notification_*`, `contents` |
+| # | ไฟล์ | ฟีเจอร์ในระบบเดิม | สถานะใน SkillwisE (Context ข้อ 60.13) |
+|---|---|---|---|
+| 01 | [01-identity-login-line.md](01-identity-login-line.md) | Login Google, remember-me, consent, login-as, ผูก LINE | **Phase 1** บัญชีเดียวผูก Google + LINE และเก็บความยินยอม ตาม system-plan ส่วนที่ 7 · login-as ไม่อยู่ในรายการ Phase 1 |
+| 02 | [02-organization-team.md](02-organization-team.md) | สมัครองค์กร, เชิญครู, บทบาทในทีม, ห้องที่ครูดูแล | **Phase 1** เฉพาะผูกครูกับโรงเรียนและออกเอกสารในนามโรงเรียน · ทีมครู คำเชิญ และที่นั่งอยู่ Phase 3 |
+| 03 | [03-students.md](03-students.md) | บันทึกนักเรียน, import Excel | **Phase 2 ออกแบบใหม่** ใช้ชื่อเล่นหรือชื่อที่ครูตั้งเอง ไม่ต้องมีนามสกุล เป็นข้อมูลของห้องเรียนหรือโรงเรียน เห็นเฉพาะครูที่ดูแลห้อง |
+| 04 | [04-canvas.md](04-canvas.md) | Canvas 7 ช่อง, สถานะคะแนน, เกณฑ์พร้อมทำแผน | **Phase 2 ออกแบบใหม่** ตามภาพปลายทาง: Canvas 7 ช่อง + โค้ช AI + ผลวิเคราะห์ ใช้เครดิต |
+| 05 | [05-ai-plan-synthesis.md](05-ai-plan-synthesis.md) | AI สังเคราะห์ Canvas เป็นแผน, โควตา | **ไม่อยู่ในแผนรูปแบบนี้** · Phase 3 มีแผนของโรงเรียน 4 ส่วนที่รวมจาก Canvas ที่ครูแชร์ |
+| 06 | [06-development-plan.md](06-development-plan.md) | แผนพัฒนาศักยภาพ, ส่งตรวจ, PDF | **ไม่อยู่ในแผนรูปแบบนี้** (แผนรายครู) · Phase 3 มีแผนของโรงเรียน |
+| 07 | [07-action-plan.md](07-action-plan.md) | แปลงเป็นแผนลงมือทำ, กิจวัตร, to-do รายสัปดาห์ | **ไม่อยู่ในแผน** ไม่มีแผนลงมือทำรายสัปดาห์ (ข้อ 60.13.4) |
+| 08 | [08-practice-log-story.md](08-practice-log-story.md) | บันทึกทำแล้ว/เลื่อน, รูปหลักฐาน, เรื่องราว | **บันทึกรายสัปดาห์ไม่อยู่ในแผน** · Phase 2 ใช้เรื่องเล่าผ่าน LINE + ไทม์ไลน์เด็กแทน |
+| 09 | [09-outcome-report-dashboard.md](09-outcome-report-dashboard.md) | Timeline รายเด็ก, รายงาน, dashboard | **Phase 2** ไทม์ไลน์เด็ก · **Phase 3** รายงานโรงเรียนและผู้ชมภายนอก · ไม่มี dashboard โค้ช เพราะไม่มีโค้ชที่เป็นคน |
+| 10 | [10-notification-content.md](10-notification-content.md) | แจ้งเตือน email/LINE, ลิงก์นับคลิก, ข่าวหน้าเว็บ | **Phase 1** ข้อความแจ้งเตือน LINE และอีเมลตาม system-plan ส่วนที่ 8 (หน้า O7, A11) |
 
 ## โครงของแต่ละไฟล์
 
@@ -37,15 +41,16 @@ spec ชุดนี้เขียนจากการอ่านโค้ด
 6. การตรวจข้อมูลขาเข้า
 7. Edge case
 8. **สิ่งที่ห้ามทำตาม** (bug, ช่องโหว่, tech debt, ของเฉพาะ Sila5School)
-9. **แนวทางใน SkillWise:** ตารางใหม่, permission, สิ่งที่ต้องเปลี่ยนตาม Context
+9. แนวทางใน SkillwisE ที่เขียนไว้ก่อนข้อ 60.13 (ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ)
 10. คำถามที่ยัง OPEN
 
 ## วิธีใช้กับ AI ที่ช่วยเขียนโค้ด
 
 ให้ AI อ่านตามลำดับนี้ก่อนเขียนฟีเจอร์ใด ๆ:
 1. `CLAUDE.md` หรือ `AGENTS.md`
-2. Context ข้อที่เกี่ยวข้อง
-3. spec ของฟีเจอร์นั้น
+2. Context ข้อ 60.13 และข้อที่เกี่ยวข้อง
+3. `docs/system-plan.md` และภาพปลายทาง UI
 4. `docs/database/README.md`
+5. spec ในโฟลเดอร์นี้ เฉพาะเมื่ออยากรู้ว่าระบบเดิมเคยทำอะไร
 
-**ข้อควรระวัง:** หัวข้อ 5–7 บอกว่า "ระบบเดิมทำอะไร" ไม่ใช่ "SkillWise ต้องทำอะไร" · สิ่งที่ SkillWise ต้องทำอยู่ในหัวข้อ 9 และ Context · ถ้าสองส่วนนี้ขัดกัน ให้เชื่อ Context
+**ข้อควรระวัง:** หัวข้อ 5–7 บอกว่า "ระบบเดิมทำอะไร" ไม่ใช่ "SkillwisE ต้องทำอะไร" · สิ่งที่ SkillwisE ต้องทำอยู่ใน Context และ `docs/system-plan.md` · ถ้าขัดกัน ให้เชื่อ Context

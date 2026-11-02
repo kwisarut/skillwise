@@ -1,5 +1,9 @@
 # Canvas (Unlock Hidden Potential Canvas)
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **Phase 2 ออกแบบใหม่** ตามภาพปลายทาง: Canvas 7 ช่อง + โค้ช AI + ผลวิเคราะห์ ใช้เครดิต
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Must (หัวข้อ 8 ของ `docs/sila5school-study.md` ข้อ #7 Canvas และ #8 AI feedback ต่อ Canvas)
 - **โค้ดอ้างอิง:** path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน
   - `module/console/controller/canvasController.php` — หน้า Canvas Pool, ฟอร์ม, บันทึก, ลบ, ป้ายสถานะ · **ส่วน AI สังเคราะห์แผนเริ่มที่ `:473` ถึง `:1078` อยู่ใน spec อีกไฟล์**
@@ -146,11 +150,13 @@ stateDiagram-v2
 - **แก้ Canvas แล้วไปเปลี่ยนสถานะแผนบนแถว `school_training`** เป็น side effect (`:1419-1435`) แทนการผูก plan version กับ canvas revision
 - ไม่ตรวจความยาว 7 ช่องที่ server
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise |
+| ระบบเดิม | SkillwisE |
 |---|---|
 | นิยาม 7 ช่อง, ความยาว 800, คะแนนเต็ม, คำถามนำ | `tools` → `tool_versions` → `tool_fields` (`label`, `help_text`, `sort_order`, `is_required`, `max_score` · ความยาวสูงสุดและ placeholder อยู่ใน `config`) |
 | เกณฑ์ 7 และช่อง 1 ≥ 1.5 | `tool_versions.settings` (`readiness.min_total_score`, `readiness.min_field_scores`, `readiness.enforced` = false ใน seed) · จะใช้เป็นด่านหรือไม่ยัง OPEN |

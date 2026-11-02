@@ -1,5 +1,9 @@
 # บันทึกการลงมือทำและเรื่องราว (Practice Log & Story)
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **บันทึกรายสัปดาห์ไม่อยู่ในแผน** · Phase 2 ใช้เรื่องเล่าผ่าน LINE + ไทม์ไลน์เด็กแทน
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** บันทึกรายสัปดาห์ Must — `docs/sila5school-study.md` หัวข้อ 8 ข้อ #11 · เรื่องเล่าและ Reflection ที่เป็นส่วนตัวเกี่ยวกับข้อ #12 · **การแชร์ออกนอกองค์กร/สาธารณะเป็น Later (ข้อ #19)** · บันทึกผ่าน LINE เป็น Later (ข้อ #18b)
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `module/console/controller/actionPlanController.php` — ส่วนบันทึกผล (ทำแล้ว / เลื่อน / ย้อนหลัง / รูป)
@@ -154,11 +158,13 @@ stateDiagram-v2
 - **เชื่อ MIME จาก browser** · ไม่กันบันทึกซ้ำที่ server · นับรูปแบบไม่ atomic
 - **flag สรุปสถานะเมนูบนแถว `school_training`** (`console.php:1510-1536`) และคอลัมน์ที่ไม่ได้ใช้ (`sal_story_running`) (study 6.3)
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise | หมายเหตุ |
+| ระบบเดิม | SkillwisE | หมายเหตุ |
 |---|---|---|
 | `school_action_log` | `practice_logs` | `outcome` `done` / `postponed` · `happened_on` (ครูระบุ) แยกจาก `recorded_at` (trigger ตั้ง client เขียนไม่ได้) · `is_backdated` เป็น generated column (บันทึกย้อนหลังเป็นแนวคิด Context 60.12) · ผูก `practice_session_id` · นัดหนึ่งครั้งมี "done" ได้แถวเดียว (unique index `practice_logs_one_done_per_session`) |
 | (ไม่มีการแก้) | `practice_log_revisions` + `removed_at` ในตารางที่ผูกกับบันทึก | แก้ `outcome` / `happened_on` / `note` แล้ว trigger เก็บ snapshot + ผู้แก้ + เวลา · รายการที่ผูก (ครูร่วม, นักเรียน, ไฟล์แนบ, สัญญาณ) เอาออกด้วย `removed_at` / `removed_by` และแก้ทับไม่ได้ (trigger) ต้องเอาออกแล้วเพิ่มแถวใหม่ · การห้ามลบแถวตรวจที่ API ฐานข้อมูลไม่บล็อก เพื่อให้ลบตามคำขอลบข้อมูลส่วนบุคคลได้ (Context 60.10.5) |

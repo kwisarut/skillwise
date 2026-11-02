@@ -1,5 +1,9 @@
 # ผลลัพธ์รายนักเรียน รายงานภาพรวม และ Dashboard
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **Phase 2** ไทม์ไลน์เด็ก · **Phase 3** รายงานโรงเรียนและผู้ชมภายนอก · ไม่มี dashboard โค้ช
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Timeline รายเด็ก + สรุปก่อน/หลัง = **Should** (#14) · Dashboard = **Must** สำหรับครูและโค้ช / **Should** สำหรับองค์กร (#15) · ลิงก์แชร์รายงาน = **Later** (#19) — อ้างหัวข้อ 8 ของ `docs/sila5school-study.md`
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `module/console/controller/outcomeController.php` — เมนู 6 รายงานผลลัพธ์ระดับบุคคล
@@ -169,18 +173,20 @@ stateDiagram-v2
 - ผูกเด็กด้วยการค้นข้อความ, ผูกสัญญาณด้วยการเทียบสตริง, เก็บ id หลายค่าเป็น CSV (`sat_stc_ids`, `sat_teacher_ids`, `sal_with_person_ids`) — `report.php:105, 309, 346`
 - flag สถานะเมนูกองบนแถว `school_training` แทนสถานะที่คำนวณจากข้อมูลจริง
 
-**Hard-code เฉพาะ Sila5School (ห้ามเป็นแกนของ SkillWise · Context 9, 47, 53)**
+**Hard-code เฉพาะ Sila5School (ห้ามเป็นแกนของ SkillwisE · Context 9, 47, 53)**
 - เกณฑ์สมุด 360/600, Academy 50%, เกณฑ์ 60% บน dashboard, tier 60/50/40% ตามขนาด, เกณฑ์ M1 (6 / 8 สัปดาห์ / 3 เรื่อง), ระดับ M1–M3, ดาว, เกียรติบัตรตามดาว — `report.php:16-18, 268-274`, `dashboardController.php:85-96`
 - `sat_core_key` = ตรวจสมุด / สุขจริงหนอ และ 7 กิจวัตร — `console.php:96, 104, 1585-1594`, `report.php:369`
 - `activity_type_id IN (7, 17)` ของคอร์ส FA — `report.php:254`
 - มาตรฐาน สพฐ./สกร. และ id สังกัด 4 · ข้อความทางการที่มีชื่อโครงการ — `conclusionController.php:185-198, 300, 552`
-- ธงเหลืองทั้ง 4 ข้อผูกกับคะแนนสมุดและ Academy ซึ่ง SkillWise Phase 1 ไม่มี
+- ธงเหลืองทั้ง 4 ข้อผูกกับคะแนนสมุดและ Academy ซึ่ง SkillwisE Phase 1 ไม่มี
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise |
+| ระบบเดิม | SkillwisE |
 |---|---|
 | `school_post` type 2 + รูป | `student_progress_summaries` (`before_text` / `after_text`, `author_user_id`, `status` draft/final, `ai_job_id` ถ้า AI ร่าง) · ไม่มีคอลัมน์ visibility จึงต้องคุมความเป็นส่วนตัวที่ API · ตารางผูกรูปกับสรุปยังไม่มีใน schema MVP (ถ้าเพิ่ม ไฟล์ต้องเป็น `files` ที่ `contains_student_data` = true และ private) |
 | `sal_member_id` (1 คน) | `practice_log_students` (หลายคน) |

@@ -1,5 +1,9 @@
 # แผนพัฒนาศักยภาพ (Development Plan)
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **ไม่อยู่ในแผนรูปแบบนี้** (แผนรายครู) · Phase 3 มีแผนของโรงเรียน
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Must สำหรับแผนที่มี version และครูแก้ได้ (หัวข้อ 8 ข้อ #9 ของ `docs/sila5school-study.md`) · Export PDF เป็น Should (ข้อ #17)
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `module/console/controller/planController.php` — หน้าแผน, แก้ข้อความ, ส่งตรวจ/ยกเลิก, PDF
@@ -138,11 +142,13 @@ stateDiagram-v2
 - ใส่ชื่อจริงลงข้อความ note ที่แอดมินเห็น
 - ตัวแปลง PDF ที่โหลด URL จากเนื้อหาผู้ใช้โดยไม่มีด่าน
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise | หมายเหตุ |
+| ระบบเดิม | SkillwisE | หมายเหตุ |
 |---|---|---|
 | `school_plan` (1 แถว/โรงเรียน/ปี) | `development_plans` | `owner_user_id` เป็นครู (Data Ownership ยัง OPEN ตาม Context 34) · `organization_id` เป็น null ได้ (ครูอิสระใช้ได้) · คอลัมน์ผูก Case/รอบโดยตรงยังไม่มีใน schema MVP (หัวข้อ 10 ข้อ 5) |
 | 6 คอลัมน์ข้อความ | `development_plan_versions` + `development_plan_sections` | หัวข้อเป็นข้อมูล (key, ลำดับ, ชื่อ, แก้ได้หรือไม่) จาก template ของ tool_version ไม่ใช่คอลัมน์ |

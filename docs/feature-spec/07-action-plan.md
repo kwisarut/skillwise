@@ -1,5 +1,9 @@
 # แผนลงมือทำ (Action Plan)
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **ไม่อยู่ในแผน** ไม่มีแผนลงมือทำรายสัปดาห์
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Must — `docs/sila5school-study.md` หัวข้อ 8 ข้อ #10 · การเตือนที่ส่งจริงเป็น Should (ข้อ #18) · ตอบกลับทาง LINE แล้วบันทึกเป็นหลักฐานเป็น Later (ข้อ #18b)
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `module/console/controller/actionPlanController.php` — ส่วนแผนและงาน (ส่วนบันทึกผลอยู่ใน `08-practice-log-story.md`)
@@ -157,11 +161,13 @@ flowchart LR
 - **ผูก Canvas กับแผนผ่าน JSON ในร่าง AI ล่าสุด** แทน FK ที่มี version (`console.php:2476-2501`)
 - **render HTML ใน controller และนับ to-do ใหม่ทุก request** โดยไม่มีแถวของแต่ละครั้งที่ต้องทำ
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise | หมายเหตุ |
+| ระบบเดิม | SkillwisE | หมายเหตุ |
 |---|---|---|
 | `school_action_plan` | `action_plans` | snapshot ของ `development_plan_versions` 1 version (`plan_version_id`) · canvas revision ที่ใช้มาจาก `development_plan_canvases` ของ version นั้น (FK) แทน `sap_draft_id` · มีหลายรอบต่อครูได้ |
 | `sap_owner_person_id`, `sap_assistant_ids`, `sap_confirm_*` | `action_plan_members` (`member_role` = `owner` / `co_teacher`, `acknowledged_at`) | ยืนยันการอ่านรายคน ไม่ใช่ติ๊กเดียวแทนทั้งทีม |
@@ -203,7 +209,7 @@ flowchart LR
 4. ต้องให้ครูร่วมทุกคน acknowledge ก่อนเปิดใช้ หรือเปิดใช้ได้เลยแล้วเก็บสถานะรายคน
 5. แผนลงมือทำผูกกับ "รอบการพัฒนา" แบบไหน (ปีการศึกษา / รอบ subscription — study 9 ข้อ 7) และขอบเขตวันสิ้นสุดมาจากอะไร
 6. ระยะเวลาขั้นต่ำ 8 สัปดาห์เป็นค่าตายตัวของ product หรือให้องค์กร/แพ็กเกจตั้งได้
-7. ชุดกิจวัตรเริ่มต้น (`practice_sets`) ของ SkillWise มีอะไร และองค์กรเพิ่ม/ปิดเองได้หรือไม่ (7 กิจวัตรเป็นแค่หนึ่งชุด — Context 9)
-8. งานแบบ "ติดตาม" (เช่น ติดตามผลสอบของนักเรียน) ต้องมีใน SkillWise หรือไม่ ถ้ามีเป็น item kind ใหม่ ไม่ใช่ `academy_follow`
+7. ชุดกิจวัตรเริ่มต้น (`practice_sets`) ของ SkillwisE มีอะไร และองค์กรเพิ่ม/ปิดเองได้หรือไม่ (7 กิจวัตรเป็นแค่หนึ่งชุด — Context 9)
+8. งานแบบ "ติดตาม" (เช่น ติดตามผลสอบของนักเรียน) ต้องมีใน SkillwisE หรือไม่ ถ้ามีเป็น item kind ใหม่ ไม่ใช่ `academy_follow`
 9. ช่องทาง ความถี่ และผู้รับการเตือน (LINE / email / ในระบบ) · n8n หรือ workflow ในระบบ (Context 60.10.6, 60.10.10)
 10. ผู้บริหารเห็นตารางความสม่ำเสมอรายครูได้หรือไม่ หรือเห็นเฉพาะข้อมูลรวม (Context 31, 60.3 — ระวังกลายเป็นการประเมินครู Context 54)

@@ -1,5 +1,9 @@
 # AI สังเคราะห์ Canvas เป็นร่างแผนพัฒนา
 
+> **อ้างอิงระบบเดิมเท่านั้น ไม่ใช่แบบของระบบใหม่** (Context ข้อ 60.13.2) · SkillwisE ออกแบบใหม่จากภาพปลายทาง UI และ `docs/system-plan.md`
+> **สถานะใน SkillwisE (ข้อ 60.13):** **ไม่อยู่ในแผนรูปแบบนี้** · Phase 3 มีแผนของโรงเรียน 4 ส่วนที่รวมจาก Canvas ที่ครูแชร์
+> ระดับ Must / Should ด้านล่างและหัวข้อ 9 เขียนก่อนข้อ 60.13 ใช้ได้เฉพาะส่วนที่ไม่ขัดกับแผนระบบ
+
 - **ระดับใน MVP:** Must (หัวข้อ 8 ข้อ #9 ของ `docs/sila5school-study.md`)
 - **โค้ดอ้างอิง:** (path ตาม repo เดิม · สำเนาในเครื่องอยู่ที่ `reference/sila5school/` path เดียวกัน)
   - `module/console/controller/canvasController.php` — ส่วน AI (`:474-986`), prompt สำรอง (`:1006-1078`), ผลต่อสถานะแผน (`:1438-1469`)
@@ -168,11 +172,13 @@ headers   = Bearer token, X-Sila5-Timestamp: ts, X-Sila5-Signature: "v1=" + sign
 - ใช้ emoji เป็นระดับความรุนแรงของ warning (`planController.php:238`)
 - ข้อความ error ที่ระบุชื่อผู้ให้บริการโมเดล (AI Provider ยัง OPEN)
 
-## 9. แนวทางใน SkillWise
+## 9. แนวทางใน SkillwisE
+
+*(เขียนก่อน Context ข้อ 60.13 · ตารางที่อ้างถึงอยู่ในร่างฐานข้อมูลเดิม git commit `b38ad71` ซึ่งเอาออกแล้ว · ถ้าขัดกับ `docs/system-plan.md` ให้ยึดแผนระบบ)*
 
 **ตารางใหม่และ mapping**
 
-| ระบบเดิม | SkillWise | หมายเหตุ |
+| ระบบเดิม | SkillwisE | หมายเหตุ |
 |---|---|---|
 | `school_ai_draft` | `ai_jobs` (`job_type` = `plan_synthesis`) | status, attempts, input snapshot ที่ pseudonymize แล้ว, output, error_code + ข้อความสำหรับผู้ใช้, model/cost, prompt version |
 | `sad_canvas_ids` (JSON) | `ai_job_canvas_revisions` | อ้าง **canvas_revisions** ไม่ใช่ canvas เพื่อรู้ว่า AI เห็นฉบับไหน |
